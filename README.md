@@ -19,7 +19,7 @@ Das ausführliche Konzept liegt als Dokument bei Claude.
 | Teil | Lösung |
 | --- | --- |
 | Oberfläche | React 19, TypeScript, Vite |
-| Freistellen | U²-Netp (`public/models/u2netp.onnx`, 4,5 MB) mit onnxruntime-web (WASM, ein Thread) |
+| Freistellen | U²-Netp (`tools/u2netp.onnx`, 4,5 MB, für das Hosting als `public/models/u2netp.json` verpackt) mit onnxruntime-web (WASM, ein Thread) |
 | Speicher | IndexedDB, Fallback auf Arbeitsspeicher (`src/lib/storage.ts`) |
 
 Wichtige Dateien

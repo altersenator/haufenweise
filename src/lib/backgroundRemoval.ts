@@ -14,19 +14,34 @@ function assetUrl(path: string) {
   return new URL(path, document.baseURI).href
 }
 
+/** Das Modell liegt als Base64 in einer JSON-Datei, weil nicht jeder Hoster .onnx-Dateien ausliefert. */
+async function loadModelBytes(): Promise<Uint8Array> {
+  const res = await fetch(assetUrl('./models/u2netp.json'))
+  if (!res.ok) throw new Error(`Modell nicht gefunden (${res.status})`)
+  const { base64 } = (await res.json()) as { base64: string }
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
 /** Lädt das Modell. Kann früh aufgerufen werden, damit es bereitsteht. */
 export function preloadModel(): Promise<ort.InferenceSession> {
   if (!sessionPromise) {
     ort.env.wasm.numThreads = 1
     ort.env.wasm.proxy = false
     // Die Laufzeit-Datei (.wasm) bindet Vite beim Bauen automatisch mit ein.
-    sessionPromise = ort.InferenceSession.create(assetUrl('./models/u2netp.onnx'), {
-      executionProviders: ['wasm'],
-      graphOptimizationLevel: 'all',
-    }).catch((err) => {
-      sessionPromise = null // Beim nächsten Versuch neu laden.
-      throw err
-    })
+    sessionPromise = loadModelBytes()
+      .then((bytes) =>
+        ort.InferenceSession.create(bytes, {
+          executionProviders: ['wasm'],
+          graphOptimizationLevel: 'all',
+        }),
+      )
+      .catch((err) => {
+        sessionPromise = null // Beim nächsten Versuch neu laden.
+        throw err
+      })
   }
   return sessionPromise
 }
