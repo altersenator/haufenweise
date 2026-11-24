@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { dims } from '../lib/format'
-import { useObjectUrl } from '../lib/useObjectUrl'
-import { CONDITION_LABELS, type Item } from '../types'
+import { useObjectUrls } from '../lib/useObjectUrl'
+import { CONDITION_LABELS, FACE_KEYS, FACE_LABELS, type FaceKey, type Item } from '../types'
+import { useMemo } from 'react'
 import { BodyPreview } from './BodyPreview'
 
 interface Props {
@@ -12,7 +13,14 @@ interface Props {
 }
 
 export function ItemDetail({ item, onBack, onEdit, onDelete }: Props) {
-  const url = useObjectUrl(item.image)
+  const blobs = useMemo(() => {
+    const out: Partial<Record<FaceKey, Blob>> = {}
+    if (item.faces) for (const k of FACE_KEYS) out[k] = item.faces[k]?.image
+    else out.front = item.image
+    return out
+  }, [item])
+  const urls = useObjectUrls(blobs)
+  const shown = FACE_KEYS.filter((k) => blobs[k]).map((k) => FACE_LABELS[k])
   const [confirming, setConfirming] = useState(false)
 
   return (
@@ -24,7 +32,8 @@ export function ItemDetail({ item, onBack, onEdit, onDelete }: Props) {
       <p className="dims-line">
         {dims(item.widthCm, item.heightCm, item.depthCm)} <span className="tag">{CONDITION_LABELS[item.condition]}</span>
       </p>
-      <BodyPreview imageUrl={url} widthCm={item.widthCm} heightCm={item.heightCm} depthCm={item.depthCm} maxPx={200} />
+      <BodyPreview faces={urls} widthCm={item.widthCm} heightCm={item.heightCm} depthCm={item.depthCm} maxPx={200} />
+      <p className="quiet small">Bebilderte Seiten: {shown.join(', ')}</p>
       {item.description && <p className="desc">{item.description}</p>}
       <p className="quiet small">
         Breite × Höhe × Tiefe. Erfasst am {new Date(item.createdAt).toLocaleDateString('de-DE')}.

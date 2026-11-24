@@ -3,12 +3,19 @@
 // und an den Skalenstrichen, ob die eingetragenen Maße zum Foto passen.
 import { useEffect, useRef, useState } from 'react'
 import { cm } from '../lib/format'
+import { DIM_LABELS, type Dim } from '../types'
+
+interface Axis {
+  dim: Dim
+  value: number
+}
 
 interface Props {
   imageUrl: string
-  widthCm: number
-  heightCm: number
-  depthCm: number
+  /** waagerechte Achse, senkrechte Achse und die schräge Achse nach hinten */
+  h: Axis
+  v: Axis
+  z?: Axis
   /** Meldet das Seitenverhältnis des Fotos (Breite / Höhe), sobald es geladen ist. */
   onRatio?: (ratio: number) => void
 }
@@ -36,7 +43,10 @@ function ticks(value: number) {
   return list
 }
 
-export function PhotoAxes({ imageUrl, widthCm, heightCm, depthCm, onRatio }: Props) {
+export function PhotoAxes({ imageUrl, h, v, z, onRatio }: Props) {
+  const widthCm = h.value
+  const heightCm = v.value
+  const depthCm = z?.value ?? 0
   const box = useRef<HTMLDivElement>(null)
   const [cw, setCw] = useState(320)
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
@@ -81,7 +91,7 @@ export function PhotoAxes({ imageUrl, widthCm, heightCm, depthCm, onRatio }: Pro
       />
       <svg width={cw} height={height} aria-hidden="true">
         <defs>
-          {(['x', 'y', 'z'] as const).map((a) => (
+          {(['width', 'height', 'depth'] as const).map((a) => (
             <marker key={a} id={`ax-${a}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
               <path d="M0 0L10 5L0 10z" className={`ax-fill-${a}`} />
             </marker>
@@ -94,7 +104,7 @@ export function PhotoAxes({ imageUrl, widthCm, heightCm, depthCm, onRatio }: Pro
           return (
             <g key={`x${t}`}>
               <line x1={x} x2={x} y1={T} y2={y0} className="ax-grid" />
-              <line x1={x} x2={x} y1={y0} y2={y0 + 6} className="ax-x" />
+              <line x1={x} x2={x} y1={y0} y2={y0 + 6} className={`ax-${h.dim}`} />
               {(i + 1) % everyX === 0 && (
                 <text x={x} y={y0 + 18} textAnchor="middle" className="ax-num">
                   {t}
@@ -110,7 +120,7 @@ export function PhotoAxes({ imageUrl, widthCm, heightCm, depthCm, onRatio }: Pro
           return (
             <g key={`y${t}`}>
               <line x1={x0} x2={x0 + dw} y1={y} y2={y} className="ax-grid" />
-              <line x1={x0 - 6} x2={x0} y1={y} y2={y} className="ax-y" />
+              <line x1={x0 - 6} x2={x0} y1={y} y2={y} className={`ax-${v.dim}`} />
               {(i + 1) % everyY === 0 && (
                 <text x={x0 - 9} y={y + 4} textAnchor="end" className="ax-num">
                   {t}
@@ -124,28 +134,34 @@ export function PhotoAxes({ imageUrl, widthCm, heightCm, depthCm, onRatio }: Pro
         <rect x={x0} y={T} width={dw} height={dh} className="ax-frame" />
 
         {/* Achsen */}
-        <line x1={x0} y1={y0} x2={x0 + dw + 16} y2={y0} className="ax-x ax-main" markerEnd="url(#ax-x)" />
-        <line x1={x0} y1={y0} x2={x0} y2={T - 16} className="ax-y ax-main" markerEnd="url(#ax-y)" />
-        <line x1={x0 + dw} y1={T} x2={zx} y2={zy} className="ax-z ax-main" markerEnd="url(#ax-z)" />
-        <line x1={x0} y1={T} x2={x0 + dz * 0.8} y2={zy} className="ax-z ax-faint" />
-        <line x1={x0 + dz * 0.8} y1={zy} x2={zx} y2={zy} className="ax-z ax-faint" />
+        <line x1={x0} y1={y0} x2={x0 + dw + 16} y2={y0} className={`ax-${h.dim} ax-main`} markerEnd={`url(#ax-${h.dim})`} />
+        <line x1={x0} y1={y0} x2={x0} y2={T - 16} className={`ax-${v.dim} ax-main`} markerEnd={`url(#ax-${v.dim})`} />
+        {z && (
+          <>
+            <line x1={x0 + dw} y1={T} x2={zx} y2={zy} className={`ax-${z.dim} ax-main`} markerEnd={`url(#ax-${z.dim})`} />
+            <line x1={x0} y1={T} x2={x0 + dz * 0.8} y2={zy} className={`ax-${z.dim} ax-faint`} />
+            <line x1={x0 + dz * 0.8} y1={zy} x2={zx} y2={zy} className={`ax-${z.dim} ax-faint`} />
+          </>
+        )}
 
         {/* Beschriftungen */}
-        <text x={x0 + dw / 2} y={y0 + 38} textAnchor="middle" className="ax-label ax-fill-x">
-          Breite {widthCm ? `${cm(widthCm)} cm` : '?'}
+        <text x={x0 + dw / 2} y={y0 + 38} textAnchor="middle" className={`ax-label ax-fill-${h.dim}`}>
+          {DIM_LABELS[h.dim]} {widthCm ? `${cm(widthCm)} cm` : '?'}
         </text>
         <text
           x={16}
           y={T + dh / 2}
           textAnchor="middle"
           transform={`rotate(-90 16 ${T + dh / 2})`}
-          className="ax-label ax-fill-y"
+          className={`ax-label ax-fill-${v.dim}`}
         >
-          Höhe {heightCm ? `${cm(heightCm)} cm` : '?'}
+          {DIM_LABELS[v.dim]} {heightCm ? `${cm(heightCm)} cm` : '?'}
         </text>
-        <text x={Math.min(zx, cw - 4)} y={zy - 10} textAnchor="end" className="ax-label ax-fill-z">
-          Tiefe {depthCm ? `${cm(depthCm)} cm` : '?'}
-        </text>
+        {z && (
+          <text x={Math.min(zx, cw - 4)} y={zy - 10} textAnchor="end" className={`ax-label ax-fill-${z.dim}`}>
+            {DIM_LABELS[z.dim]} {depthCm ? `${cm(depthCm)} cm` : '?'}
+          </text>
+        )}
       </svg>
     </div>
   )
