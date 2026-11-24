@@ -1,0 +1,51 @@
+# Haufenweise
+
+Eine gemeinnützige App, mit der Privathaushalte Dinge verschenken, die sonst auf dem Sperrmüll landen würden.
+Jeder baut aus seinen Gegenständen einen virtuellen 3D-Haufen, andere stöbern darin und holen ab.
+
+Das ausführliche Konzept liegt als Dokument bei Claude.
+
+## Stand: Etappe 1, Gegenstände erfassen
+
+- Foto aufnehmen oder aus der Galerie wählen
+- Hintergrund wird direkt auf dem Gerät entfernt (kein Upload)
+- Titel, Zustand, Beschreibung und Maße (Breite, Höhe, Tiefe in cm) eintragen
+- Vorschau als Quader in echten Proportionen, Foto auf der Vorderseite
+- Größenvergleich aller Gegenstände im selben Maßstab, mit einer 170 cm großen Person
+- Speichern, bearbeiten und löschen, vorerst nur lokal im Browser (IndexedDB)
+
+## Technik
+
+| Teil | Lösung |
+| --- | --- |
+| Oberfläche | React 19, TypeScript, Vite |
+| Freistellen | U²-Netp (`public/models/u2netp.onnx`, 4,5 MB) mit onnxruntime-web (WASM, ein Thread) |
+| Speicher | IndexedDB, Fallback auf Arbeitsspeicher (`src/lib/storage.ts`) |
+
+Wichtige Dateien
+
+- `src/lib/backgroundRemoval.ts` Vorverarbeitung, Modellaufruf, Maske, Zuschnitt
+- `src/components/ItemEditor.tsx` Ablauf zum Erfassen und Bearbeiten
+- `src/components/BodyPreview.tsx` CSS-3D-Quader als Vorschau auf Etappe 2
+- `src/components/SizeComparison.tsx` Größenvergleich im gemeinsamen Maßstab
+
+## Lizenzen der Bausteine
+
+- U²-Net / U²-Netp, Apache-2.0 ([xuebinqin/U-2-Net](https://github.com/xuebinqin/U-2-Net)); die ONNX-Datei stammt aus den Releases von [danielgatis/rembg](https://github.com/danielgatis/rembg)
+- onnxruntime-web, MIT
+- React, MIT
+
+## Entwickeln
+
+```bash
+npm install
+npm run dev      # Entwicklungsserver
+npm run build    # fertige Dateien in dist/
+```
+
+## Bewusst noch offen (für die Prüfer)
+
+- Noch kein Server, keine Anmeldung, keine Synchronisierung. Kommt in Etappe 3 mit Supabase.
+- Die Maße werden geprüft (1 bis 1000 cm), Texte auf 60 bzw. 500 Zeichen begrenzt.
+- Fotos werden über eine Canvas neu gezeichnet, dadurch fallen EXIF-Daten inklusive GPS weg.
+- Das Modell ist klein und schnell, aber nicht perfekt. Bei unruhigem Hintergrund kann man aufs Originalfoto ausweichen.

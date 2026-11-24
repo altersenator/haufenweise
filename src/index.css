@@ -1,0 +1,517 @@
+/*
+VOICE    freundlich, handfest, wie ein Aushang im Hausflur, der zum Mitnehmen einlädt
+IDEA     das orange Sperrmüll-Schild am Straßenrand trifft auf einen ordentlichen Zollstock
+PICTURE  der Gegenstand selbst als Körper in echter Größe, daneben eine Person zum Vergleich
+COLOUR   Müllabfuhr-Orange als Hauptfarbe, Petrol als ruhige Stütze, sonst Weiß oder Nacht
+TYPE     Barlow Condensed für Überschriften wie auf Straßenschildern, Barlow für Text
+LAYOUT   eine ruhige Spalte fürs Handy, große Knöpfe, ein fester Knopf zum Hinzufügen
+*/
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(#ffffff, #0e1d21);
+  --panel: light-dark(#f3f6f5, #16292e);
+  --ink: light-dark(#12343b, #eaf2f0);
+  --quiet: light-dark(#5a6f73, #9db3b1);
+  --line: light-dark(#d5dfdd, #2a4248);
+  --orange: #ff6a13;
+  --orange-ink: #1b0d03;
+  --petrol: light-dark(#12343b, #2f6670);
+  --danger: light-dark(#b42318, #ff8a80);
+  --checker-a: light-dark(#eef2f1, #1b3237);
+  --checker-b: light-dark(#ffffff, #142a2f);
+  --radius: 14px;
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+* {
+  box-sizing: border-box;
+  min-width: 0;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.55 Barlow, system-ui, sans-serif;
+  overflow-x: clip;
+  -webkit-tap-highlight-color: transparent;
+}
+h1,
+h2,
+h3 {
+  font-family: 'Barlow Condensed', Barlow, sans-serif;
+  font-weight: 700;
+  line-height: 1.05;
+  text-wrap: balance;
+  margin: 0;
+}
+h1 {
+  font-size: clamp(40px, 9vw, 52px);
+}
+h2 {
+  font-size: 32px;
+}
+h3 {
+  font-size: 24px;
+}
+p {
+  margin: 0;
+}
+.quiet {
+  color: var(--quiet);
+}
+.small {
+  font-size: 14px;
+}
+
+/* Kopfzeile */
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px max(4vw, 16px);
+  background: var(--orange);
+  color: var(--orange-ink);
+}
+.brand {
+  font: 700 26px/1 'Barlow Condensed', sans-serif;
+  background: none;
+  border: 0;
+  color: inherit;
+  padding: 8px 0;
+  cursor: pointer;
+}
+.stage {
+  font-size: 13px;
+  font-weight: 600;
+  background: rgb(0 0 0 / 0.1);
+  padding: 4px 10px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+
+.main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px max(4vw, 16px) 120px;
+}
+.hero {
+  margin-bottom: 20px;
+}
+.lead {
+  font-size: 17px;
+  color: var(--quiet);
+  margin-top: 6px;
+}
+.section-title {
+  font-size: 24px;
+  margin: 28px 0 12px;
+}
+
+/* Hinweise */
+.notice {
+  background: light-dark(#fff1e8, #3a2414);
+  border-left: 4px solid var(--orange);
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin: 12px 0;
+}
+.err {
+  color: var(--danger);
+  font-size: 15px;
+  margin: -6px 0 12px;
+}
+.empty {
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 22px;
+  margin-top: 8px;
+}
+
+/* Knöpfe */
+.btn {
+  font: 600 16px/1.2 Barlow, sans-serif;
+  min-height: 44px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  cursor: pointer;
+}
+.btn:focus-visible,
+.card:focus-visible,
+.choice-opt:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+}
+.btn.primary {
+  background: var(--petrol);
+  border-color: var(--petrol);
+  color: #fff;
+}
+.btn.big {
+  min-height: 56px;
+  font-size: 18px;
+  width: 100%;
+}
+.btn.small {
+  min-height: 44px;
+  font-size: 15px;
+  padding: 8px 14px;
+}
+.btn.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+.btn.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: light-dark(#fff, #1b0d03);
+}
+.btn.danger-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--danger);
+}
+.btn:disabled {
+  opacity: 0.6;
+}
+.btn.fab {
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(608px, calc(100% - 32px));
+  background: var(--orange);
+  border-color: var(--orange);
+  color: var(--orange-ink);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+}
+
+/* Karomuster zeigt, wo ein Bild durchsichtig ist */
+.checker {
+  background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 16px 16px;
+  position: relative;
+  display: block;
+  overflow: hidden;
+}
+.checker img {
+  position: absolute;
+  inset: 4px;
+  width: calc(100% - 8px);
+  height: calc(100% - 8px);
+  object-fit: contain;
+}
+
+/* Liste */
+.cards {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+.card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px;
+  border-radius: var(--radius);
+  border: 1.5px solid var(--line);
+  background: var(--bg);
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.thumb {
+  flex: none;
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+}
+.card-text {
+  display: grid;
+}
+.card-text strong {
+  font-size: 18px;
+}
+
+/* Größenvergleich */
+.scroll {
+  overflow-x: auto;
+}
+.cmp {
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 20px 16px 0;
+}
+.cmp-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  width: max-content;
+  padding-right: 16px;
+}
+.cmp-person {
+  flex: none;
+  fill: var(--quiet);
+  opacity: 0.55;
+}
+.cmp-thing {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  cursor: pointer;
+  outline: 1px dashed var(--line);
+}
+.cmp-thing img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: bottom;
+}
+.cmp-floor {
+  height: 10px;
+  border-top: 2px solid var(--ink);
+  margin: 0 -16px;
+  opacity: 0.35;
+}
+
+/* Körper-Vorschau */
+.body-stage {
+  position: relative;
+  min-height: 280px;
+  padding-bottom: 28px;
+  display: grid;
+  place-items: center;
+  perspective: 900px;
+  background: var(--panel);
+  border-radius: var(--radius);
+  margin: 4px 0 18px;
+  touch-action: pan-y;
+  cursor: grab;
+  user-select: none;
+  overflow: hidden;
+}
+.cuboid {
+  position: relative;
+  transform-style: preserve-3d;
+}
+.face {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 1.5px solid var(--petrol);
+  backface-visibility: hidden;
+}
+.face.front {
+  background: light-dark(rgb(255 255 255 / 0.85), rgb(20 42 47 / 0.9));
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.face.front img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: bottom;
+  pointer-events: none;
+}
+.face.back {
+  background: light-dark(#dfe8e6, #1d363c);
+}
+.face.side {
+  background: light-dark(#c9d8d5, #24454c);
+}
+.face.top {
+  background: light-dark(#e9f0ee, #2b5159);
+}
+.body-empty {
+  color: var(--quiet);
+  text-align: center;
+  padding: 0 32px;
+}
+.body-hint {
+  position: absolute;
+  bottom: 10px;
+  font-size: 13px;
+  color: var(--quiet);
+}
+
+/* Erfassen */
+.editor h2 {
+  margin-bottom: 8px;
+}
+.pick {
+  display: grid;
+  gap: 12px;
+  margin: 24px 0 12px;
+}
+.working {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 10px;
+  padding-top: 80px;
+}
+.spinner {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 5px solid var(--line);
+  border-top-color: var(--orange);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 3s;
+  }
+}
+.choice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.choice-opt {
+  display: grid;
+  gap: 8px;
+  padding: 8px 8px 10px;
+  border-radius: var(--radius);
+  border: 2px solid var(--line);
+  background: var(--bg);
+  color: inherit;
+  font: 600 15px Barlow, sans-serif;
+  cursor: pointer;
+}
+.choice-opt.on {
+  border-color: var(--orange);
+}
+.choice-opt .checker {
+  height: 150px;
+  border-radius: 10px;
+}
+.photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 18px;
+}
+.field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.field > span,
+.dims legend {
+  font-weight: 600;
+}
+input,
+select,
+textarea {
+  font: 16px/1.4 Barlow, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  padding: 11px 12px;
+  min-height: 46px;
+  width: 100%;
+}
+textarea {
+  resize: vertical;
+}
+.dims {
+  border: 0;
+  padding: 0;
+  margin: 0 0 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.dims legend {
+  margin-bottom: 6px;
+  padding: 0;
+}
+.dims label {
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+  color: var(--quiet);
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+/* Detail */
+.back {
+  margin-left: -12px;
+  margin-bottom: 8px;
+}
+.dims-line {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 8px 0 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+.tag {
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 2px 10px;
+  border-radius: 99px;
+}
+.desc {
+  margin-bottom: 10px;
+  white-space: pre-wrap;
+}
+
+/* Dialog */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: rgb(0 0 0 / 0.45);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.dialog {
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 22px;
+  max-width: 420px;
+  width: 100%;
+  display: grid;
+  gap: 10px;
+}
