@@ -20,6 +20,9 @@ LAYOUT   eine ruhige Spalte fürs Handy, große Knöpfe, ein fester Knopf zum Hi
   --checker-a: light-dark(#eef2f1, #1b3237);
   --checker-b: light-dark(#ffffff, #142a2f);
   --radius: 14px;
+  --ax-x: light-dark(#d9480f, #ff8a4c);
+  --ax-y: light-dark(#0b7285, #3bc9db);
+  --ax-z: light-dark(#6741d9, #b197fc);
 }
 :root[data-theme='light'] {
   color-scheme: light;
@@ -284,8 +287,7 @@ textarea:focus-visible {
 .cmp-thing img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  object-position: bottom;
+  object-fit: fill;
 }
 .cmp-floor {
   height: 10px;
@@ -330,8 +332,8 @@ textarea:focus-visible {
 .face.front img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  object-position: bottom;
+  /* Das Foto wird genau auf die eingegebenen Maße gebracht, ohne weißen Rest. */
+  object-fit: fill;
   pointer-events: none;
 }
 .face.back {
@@ -514,4 +516,87 @@ textarea {
   width: 100%;
   display: grid;
   gap: 10px;
+}
+
+/* Foto mit Koordinatensystem */
+.measure {
+  margin: 8px 0 16px;
+  display: grid;
+  gap: 6px;
+}
+.axes {
+  position: relative;
+  background: var(--panel);
+  border-radius: var(--radius);
+  margin-top: 6px;
+  overflow: hidden;
+}
+.axes svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+.axes-img {
+  position: absolute;
+  object-fit: fill;
+}
+.checker-bg {
+  background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 12px 12px;
+}
+.ax-main {
+  stroke-width: 2.5;
+}
+.ax-x {
+  stroke: var(--ax-x);
+}
+.ax-y {
+  stroke: var(--ax-y);
+}
+.ax-z {
+  stroke: var(--ax-z);
+}
+.ax-faint {
+  stroke-width: 1.25;
+  stroke-dasharray: 4 4;
+  opacity: 0.6;
+}
+.ax-fill-x {
+  fill: var(--ax-x);
+}
+.ax-fill-y {
+  fill: var(--ax-y);
+}
+.ax-fill-z {
+  fill: var(--ax-z);
+}
+.ax-grid {
+  stroke: var(--ink);
+  stroke-opacity: 0.18;
+  stroke-dasharray: 3 4;
+}
+.ax-frame {
+  fill: none;
+  stroke: var(--ink);
+  stroke-opacity: 0.35;
+}
+.ax-num {
+  font-size: 11px;
+  fill: var(--quiet);
+}
+.ax-label {
+  font: 600 14px Barlow, sans-serif;
+}
+.dims .dim-x,
+.dims .dim-y,
+.dims .dim-z {
+  font-weight: 600;
+}
+.dim-x {
+  color: var(--ax-x);
+}
+.dim-y {
+  color: var(--ax-y);
+}
+.dim-z {
+  color: var(--ax-z);
 }

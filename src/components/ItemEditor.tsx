@@ -6,6 +6,7 @@ import { cm } from '../lib/format'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CONDITION_LABELS, type Condition, type Item, type ItemDraft } from '../types'
 import { BodyPreview } from './BodyPreview'
+import { PhotoAxes } from './PhotoAxes'
 
 type Phase = 'pick' | 'working' | 'form'
 
@@ -39,6 +40,7 @@ export function ItemEditor({ initial, onSave, onCancel }: Props) {
   const [depth, setDepth] = useState(initial ? cm(initial.depthCm) : '')
   const [triedSave, setTriedSave] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [photoRatio, setPhotoRatio] = useState(0)
 
   const cameraInput = useRef<HTMLInputElement>(null)
   const galleryInput = useRef<HTMLInputElement>(null)
@@ -90,6 +92,15 @@ export function ItemEditor({ initial, onSave, onCancel }: Props) {
     image: chosen ? '' : 'Bitte füge ein Foto hinzu.',
   }
   const hasErrors = Object.values(errors).some(Boolean)
+
+  // Passt das Seitenverhältnis des Fotos grob zu Breite und Höhe?
+  const ratioDiff = w && h && photoRatio ? photoRatio / (w / h) : 1
+  const ratioHint =
+    ratioDiff > 1.3
+      ? 'Auf dem Foto wirkt der Gegenstand deutlich breiter als nach deinen Maßen.'
+      : ratioDiff < 1 / 1.3
+        ? 'Auf dem Foto wirkt der Gegenstand deutlich schmaler als nach deinen Maßen.'
+        : ''
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -156,6 +167,10 @@ export function ItemEditor({ initial, onSave, onCancel }: Props) {
             Aus der Galerie wählen
           </button>
         </div>
+        <p className="quiet small">
+          Passiert beim Tippen nichts? Dann öffne die Seite im Browser Chrome statt in der Claude-App. Manche Apps lassen
+          die Fotoauswahl nicht zu.
+        </p>
         <button className="btn ghost" onClick={onCancel}>
           Abbrechen
         </button>
@@ -221,22 +236,39 @@ export function ItemEditor({ initial, onSave, onCancel }: Props) {
       </label>
       {triedSave && errors.title && <p className="err">{errors.title}</p>}
 
+      {imageUrl && (
+        <div className="measure">
+          <h3>Maße eintragen</h3>
+          <p className="quiet small">
+            Breite misst du von links nach rechts, so wie der Gegenstand auf dem Foto steht. Höhe geht von unten nach oben,
+            Tiefe von vorne nach hinten. Hast du schräg fotografiert, zählt trotzdem die Vorderseite als Breite.
+          </p>
+          <PhotoAxes imageUrl={imageUrl} widthCm={w} heightCm={h} depthCm={d} onRatio={setPhotoRatio} />
+        </div>
+      )}
+
       <fieldset className="dims">
         <legend>Maße in Zentimetern</legend>
         <label>
-          <span>Breite</span>
+          <span className="dim-x">Breite</span>
           <input inputMode="decimal" value={width} onChange={(e) => setWidth(e.target.value)} placeholder="80" />
         </label>
         <label>
-          <span>Höhe</span>
+          <span className="dim-y">Höhe</span>
           <input inputMode="decimal" value={height} onChange={(e) => setHeight(e.target.value)} placeholder="120" />
         </label>
         <label>
-          <span>Tiefe</span>
+          <span className="dim-z">Tiefe</span>
           <input inputMode="decimal" value={depth} onChange={(e) => setDepth(e.target.value)} placeholder="30" />
         </label>
       </fieldset>
       {triedSave && errors.dims && <p className="err">{errors.dims}</p>}
+      {ratioHint && (
+        <p className="notice">
+          {ratioHint} Prüf am besten noch einmal Breite und Höhe. Wenn alles stimmt, kannst du so speichern, das Foto wird
+          dann an deine Maße angepasst.
+        </p>
+      )}
 
       <BodyPreview imageUrl={imageUrl} widthCm={w} heightCm={h} depthCm={d} />
 
