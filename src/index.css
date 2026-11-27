@@ -1102,3 +1102,45 @@ h4 {
   font-weight: 700;
   font-size: 18px;
 }
+
+.heap-scenes {
+  margin-bottom: 10px;
+}
+.turntable-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.slider {
+  display: grid;
+  gap: 2px;
+  flex: 1 1 160px;
+  font-size: 14px;
+  color: var(--quiet);
+}
+.slider strong {
+  color: var(--ink);
+}
+.dims-sliders {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px 16px;
+}
+.deco-item {
+  justify-items: center;
+}
+.deco-icon {
+  height: 90px;
+  width: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--petrol);
+}
+.heap-sel .tag {
+  font-family: Barlow, sans-serif;
+  vertical-align: middle;
+}

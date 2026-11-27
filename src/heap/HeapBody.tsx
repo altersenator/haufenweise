@@ -65,7 +65,8 @@ export const HeapBody = memo(function HeapBody({
       angularDamping={2}
       ccd
     >
-      <CuboidCollider args={half} friction={0.9} restitution={0.02} density={250} />
+      {/* Beim Ziehen durchlässig, damit nichts angeschoben oder umgestoßen wird */}
+      <CuboidCollider args={half} friction={0.9} restitution={0.02} density={250} sensor={dragging} />
       <mesh
         castShadow
         receiveShadow

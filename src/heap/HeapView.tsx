@@ -1,49 +1,55 @@
 // Etappe 2: den eigenen Sperrmüllhaufen in 3D bauen.
-// Gegenstände aus der Ablage auf die Fläche legen, verschieben, drehen, kippen, stapeln.
+// Gegenstände und Deko-Bausteine auf die Fläche legen, verschieben, drehen, kippen, stapeln,
+// in Regalfächer stellen oder aufhängen. Dazu verschiedene Hintergründe, teils in Bewegung.
 // Die Physik sorgt dafür, dass alles realistisch aufeinander liegt.
-import { Grid, OrbitControls } from '@react-three/drei'
+import { OrbitControls } from '@react-three/drei'
 import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber'
-import { CuboidCollider, Physics, RigidBody } from '@react-three/rapier'
+import { Physics, useRapier, type RapierRigidBody } from '@react-three/rapier'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { Plane, Quaternion, Vector3, type Camera } from 'three'
+import { Quaternion, Vector3, type Camera } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { dims } from '../lib/format'
-import { loadHeap, saveHeap } from '../lib/storage'
+import { loadHeap, newId, saveHeap } from '../lib/storage'
 import { useObjectUrl } from '../lib/useObjectUrl'
-import type { Heap, Item, Placement } from '../types'
-import { GROUND_HALF, halfExtents, rotate90, snapQuaternion, supportHeight, worldHalf, type BodyBox } from './geometry'
+import type { DecoKind, DecoPlacement, Hang, Heap, Item, Placement, SceneKind, SceneOptions } from '../types'
+import { DecoBody } from './DecoBody'
+import { DECO_KINDS, DECOS, decoMeters } from './decos'
+import { GROUND_HALF, halfExtents, rotate90, snapQuaternion, worldHalf, type BodyBox, type Vec3 } from './geometry'
 import { HeapBody, type BodyEntry } from './HeapBody'
+import { Rope } from './Rope'
+import { CAMERA_PRESETS, Ground, MUGSHOT_WALL_Z, MugshotScene, SCENES, TurntableScene } from './scenes'
 
 const HEAP_ID = 'private'
-
-/** Sucht in Ringen um die Mitte einen Platz, an dem der neue Körper niemanden berührt. */
-function freeSpot(half: [number, number, number], others: BodyBox[]): [number, number] {
-  for (let r = 0; r <= 3.6; r += 0.3) {
-    const steps = r === 0 ? 1 : Math.max(8, Math.round(r * 12))
-    for (let i = 0; i < steps; i++) {
-      const a = (i / steps) * Math.PI * 2 + 0.4
-      const x = Math.cos(a) * r
-      const z = Math.sin(a) * r
-      if (Math.abs(x) + half[0] > LIMIT || Math.abs(z) + half[2] > LIMIT) continue
-      const clear = others.every(
-        (o) => Math.abs(x - o.center[0]) >= half[0] + o.half[0] + 0.05 || Math.abs(z - o.center[2]) >= half[2] + o.half[2] + 0.05,
-      )
-      if (clear) return [x, z]
-    }
-  }
-  return [0, 0] // alles voll: dann oben drauf
-}
 const LIMIT = GROUND_HALF - 0.2
+const DEFAULT_OPTIONS: SceneOptions = { speed: 0.4, running: true }
+const DECO_PREFIX = 'deco:'
+const isDeco = (id: string) => id.startsWith(DECO_PREFIX)
+
+type PhysicsApi = ReturnType<typeof useRapier>
 
 interface DragState {
   id: string
   sx: number
   sy: number
   started: boolean
-  planeY: number
-  offX: number
-  offZ: number
-  y: number
+}
+
+/** Sucht in Ringen um die Mitte einen Platz, an dem der neue Körper niemanden berührt. */
+function freeSpot(half: Vec3, others: BodyBox[], minZ: number): [number, number] {
+  for (let r = 0; r <= 3.6; r += 0.3) {
+    const steps = r === 0 ? 1 : Math.max(8, Math.round(r * 12))
+    for (let i = 0; i < steps; i++) {
+      const a = (i / steps) * Math.PI * 2 + 0.4
+      const x = Math.cos(a) * r
+      const z = Math.sin(a) * r
+      if (Math.abs(x) + half[0] > LIMIT || Math.abs(z) + half[2] > LIMIT || z - half[2] < minZ) continue
+      const clear = others.every(
+        (o) => Math.abs(x - o.center[0]) >= half[0] + o.half[0] + 0.05 || Math.abs(z - o.center[2]) >= half[2] + o.half[2] + 0.05,
+      )
+      if (clear) return [x, z]
+    }
+  }
+  return [0, Math.max(0, minZ + half[2] + 0.1)] // alles voll: dann oben drauf
 }
 
 function CameraGrab({ target }: { target: React.RefObject<Camera | null> }) {
@@ -51,6 +57,31 @@ function CameraGrab({ target }: { target: React.RefObject<Camera | null> }) {
   useEffect(() => {
     target.current = camera
   }, [camera, target])
+  return null
+}
+
+/** Gibt der Ansicht Zugriff auf die Physik-Welt (für Zielstrahlen). */
+function PhysicsGrab({ target }: { target: React.RefObject<PhysicsApi | null> }) {
+  const api = useRapier()
+  useEffect(() => {
+    target.current = api
+  }, [api, target])
+  return null
+}
+
+/** Setzt beim Wechsel des Hintergrunds eine passende Kameraposition. */
+function CameraRig({ scene, controls }: { scene: SceneKind; controls: React.RefObject<OrbitControlsImpl | null> }) {
+  const { camera } = useThree()
+  useEffect(() => {
+    const p = CAMERA_PRESETS[scene]
+    camera.position.set(...p.position)
+    const c = controls.current
+    if (c) {
+      c.target.set(...p.target)
+      c.update()
+      c.saveState()
+    }
+  }, [scene, camera, controls])
   return null
 }
 
@@ -67,6 +98,44 @@ function TrayItem({ item, onAdd }: { item: Item; onAdd: () => void }) {
   )
 }
 
+/** Kleine Piktogramme für die Deko-Ablage */
+function DecoIcon({ kind }: { kind: DecoKind }) {
+  const stroke = { stroke: 'currentColor', strokeWidth: 3, fill: 'none', strokeLinejoin: 'round' as const }
+  return (
+    <svg viewBox="0 0 64 64" width="56" height="56" aria-hidden="true">
+      {kind === 'shelf' && (
+        <g {...stroke}>
+          <rect x="10" y="8" width="44" height="48" />
+          <path d="M21 8v48M32 8v48M43 8v48M10 20h44M10 32h44M10 44h44" strokeWidth="2" />
+        </g>
+      )}
+      {kind === 'podium' && (
+        <g {...stroke}>
+          <path d="M6 56V36h17V20h18v26h17v10z" />
+          <text x="32" y="36" textAnchor="middle" fontSize="12" fill="currentColor" stroke="none" fontWeight="700">
+            1
+          </text>
+        </g>
+      )}
+      {kind === 'swing' && (
+        <g {...stroke}>
+          <path d="M8 10h48M14 10 6 56M14 10l8 46M50 10l-8 46M50 10l8 46M27 10v30M37 10v30" strokeWidth="2.5" />
+          <rect x="24" y="40" width="16" height="4" />
+        </g>
+      )}
+      {kind === 'etagere' && (
+        <g {...stroke}>
+          <path d="M32 6v48M18 54h28" />
+          <ellipse cx="32" cy="46" rx="24" ry="4" />
+          <ellipse cx="32" cy="30" rx="17" ry="3" />
+          <ellipse cx="32" cy="16" rx="11" ry="2.5" />
+          <circle cx="32" cy="6" r="3" />
+        </g>
+      )}
+    </svg>
+  )
+}
+
 interface Props {
   items: Item[]
   onBack: () => void
@@ -78,67 +147,104 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
   const [selected, setSelected] = useState<string | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
   const [pressing, setPressing] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [, setRegVersion] = useState(0)
+  const [pendingDims, setPendingDims] = useState<[number, number, number] | null>(null)
+  const [rebuild, setRebuild] = useState(0)
 
   const bodies = useRef(new Map<string, BodyEntry>())
+  const seats = useRef(new Map<string, RapierRigidBody>())
+  const physics = useRef<PhysicsApi | null>(null)
   const camera = useRef<Camera | null>(null)
   const controls = useRef<OrbitControlsImpl>(null)
   const drag = useRef<DragState | null>(null)
   const heapRef = useRef<Heap | null>(null)
   heapRef.current = heap
   const saveTimer = useRef<number | undefined>(undefined)
+  const dimsTimer = useRef<number | undefined>(undefined)
+
+  const scene: SceneKind = heap?.scene ?? 'plain'
+  const options = heap?.sceneOptions ?? DEFAULT_OPTIONS
+  const minZ = scene === 'mugshot' ? MUGSHOT_WALL_Z + 0.03 : -LIMIT
 
   // Gespeicherten Haufen laden. Gelöschte Gegenstände fallen heraus.
   useEffect(() => {
     loadHeap(HEAP_ID).then((h) => {
       const ids = new Set(items.map((i) => i.id))
-      setHeap({ ...h, placements: h.placements.filter((p) => ids.has(p.itemId)) })
+      setHeap({
+        ...h,
+        placements: h.placements.filter((p) => ids.has(p.itemId)),
+        hangs: (h.hangs ?? []).filter((x) => ids.has(x.itemId)),
+      })
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Aktuelle Lage aller Körper aus der Physik auslesen und speichern
-  const persist = useCallback(() => {
-    const h = heapRef.current
-    if (!h) return
-    const placements = h.placements.map((p): Placement => {
-      const e = bodies.current.get(p.itemId)
-      if (!e) return p
+  // Nur in der Entwicklungsversion: Zugriff für automatische Tests
+  useEffect(() => {
+    if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__heapDebug = { bodies: bodies.current, camera, seats: seats.current }
+  })
+
+  // ---- Speichern -------------------------------------------------------------------
+
+  /** Aktuelle Lage aller Körper aus der Physik in den Haufen übernehmen */
+  const snapshot = useCallback((h: Heap): Heap => {
+    const read = (id: string) => {
+      const e = bodies.current.get(id)
+      if (!e) return null
       try {
         const t = e.body.translation()
         const r = e.body.rotation()
-        return { ...p, pos: [t.x, t.y, t.z], rot: [r.x, r.y, r.z, r.w] }
+        return { pos: [t.x, t.y, t.z] as Vec3, rot: [r.x, r.y, r.z, r.w] as [number, number, number, number] }
       } catch {
-        return p
+        return null
       }
-    })
-    saveHeap({ id: HEAP_ID, placements, updatedAt: Date.now() })
+    }
+    return {
+      ...h,
+      placements: h.placements.map((p): Placement => ({ ...p, ...(read(p.itemId) ?? {}) })),
+      decos: (h.decos ?? []).map((d): DecoPlacement => ({ ...d, ...(read(d.id) ?? {}) })),
+    }
   }, [])
+
+  const persist = useCallback(() => {
+    const h = heapRef.current
+    if (h) saveHeap({ ...snapshot(h), updatedAt: Date.now() })
+  }, [snapshot])
 
   const scheduleSave = useCallback(() => {
     window.clearTimeout(saveTimer.current)
-    // Kurz warten, bis die Physik zur Ruhe gekommen ist
-    saveTimer.current = window.setTimeout(persist, 1800)
+    saveTimer.current = window.setTimeout(persist, 1800) // warten, bis die Physik zur Ruhe kommt
   }, [persist])
 
   useEffect(() => {
     const onHide = () => persist()
     window.addEventListener('pagehide', onHide)
     document.addEventListener('visibilitychange', onHide)
+    const autosave = window.setInterval(persist, 8000) // Drehteller und Schaukel bewegen sich laufend
     return () => {
       window.removeEventListener('pagehide', onHide)
       document.removeEventListener('visibilitychange', onHide)
+      window.clearInterval(autosave)
       window.clearTimeout(saveTimer.current)
       persist()
     }
   }, [persist])
 
+  // ---- Körper-Verzeichnis --------------------------------------------------------
+
   const register = useCallback((id: string, entry: BodyEntry | null) => {
     if (entry) bodies.current.set(id, entry)
     else bodies.current.delete(id)
+    setRegVersion((v) => v + 1) // Seile neu verbinden
   }, [])
 
-  /** Alle anderen Körper als Kisten in Weltkoordinaten */
-  const others = useCallback((exclude: string): BodyBox[] => {
+  const registerSeat = useCallback((id: string, seat: RapierRigidBody | null) => {
+    if (seat) seats.current.set(id, seat)
+    else seats.current.delete(id)
+  }, [])
+
+  const others = useCallback((exclude?: string): BodyBox[] => {
     const out: BodyBox[] = []
     for (const [id, e] of bodies.current) {
       if (id === exclude) continue
@@ -149,62 +255,109 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
     return out
   }, [])
 
-  const placementOf = (id: string | null) => heap?.placements.find((p) => p.itemId === id)
+  const quatOf = (id: string) => {
+    const r = bodies.current.get(id)!.body.rotation()
+    return new Quaternion(r.x, r.y, r.z, r.w)
+  }
 
-  // ---- Ablage → Haufen -------------------------------------------------------
+  /** Körper, die ein Zielstrahl ignorieren soll: der gezogene selbst und Teile davon (Schaukelsitz) */
+  const excludedHandles = (id: string) => {
+    const set = new Set<number>()
+    const e = bodies.current.get(id)
+    if (e) set.add(e.body.handle)
+    const seat = seats.current.get(id)
+    if (seat) set.add(seat.handle)
+    return set
+  }
+
+  /** Höchste Oberfläche unter einer Grundfläche, per Zielstrahlen von oben nach unten */
+  const surfaceBelow = useCallback((x: number, z: number, hx: number, hz: number, fromY: number, skip: Set<number>) => {
+    const api = physics.current
+    if (!api) return 0
+    const { world, rapier } = api
+    let top = 0
+    for (const [dx, dz] of [
+      [0, 0],
+      [0.9, 0.9],
+      [-0.9, 0.9],
+      [0.9, -0.9],
+      [-0.9, -0.9],
+    ]) {
+      const ray = new rapier.Ray({ x: x + dx * hx, y: fromY, z: z + dz * hz }, { x: 0, y: -1, z: 0 })
+      const hit = world.castRay(ray, fromY + 1, true, undefined, undefined, undefined, undefined, (c) => !skip.has(c.parent()?.handle ?? -1))
+      if (hit) top = Math.max(top, fromY - hit.timeOfImpact)
+    }
+    return top
+  }, [])
+
+  // ---- Hinzufügen, Entfernen, Festsetzen ------------------------------------------
 
   function addItem(item: Item) {
     if (!heap) return
     const half = halfExtents(item)
-    const [x, z] = freeSpot(half, others(item.id))
-    // Sanft absetzen: knapp über dem, worauf er steht, damit hohe Dinge nicht umkippen
-    const y = supportHeight(x, z, half[0], half[2], others(item.id)) + half[1] + 0.02
-    setHeap({ ...heap, placements: [...heap.placements, { itemId: item.id, pos: [x, y, z], rot: [0, 0, 0, 1], locked: false }] })
+    const [x, z] = freeSpot(half, others(), minZ)
+    const y = surfaceBelow(x, z, half[0], half[2], 6, new Set()) + half[1] + 0.02
+    setHeap({ ...snapshot(heap), placements: [...heap.placements, { itemId: item.id, pos: [x, y, z], rot: [0, 0, 0, 1], locked: false }] })
     setSelected(item.id)
+    scheduleSave()
+  }
+
+  function addDeco(kind: DecoKind) {
+    if (!heap) return
+    const dimsCm = [...DECOS[kind].defaults] as [number, number, number]
+    const m = decoMeters(kind, dimsCm)
+    const half: Vec3 = [m[0] / 2, m[1] / 2, m[2] / 2]
+    const [x, z] = freeSpot(half, others(), minZ)
+    const y = surfaceBelow(x, z, half[0], half[2], 6, new Set()) + half[1] + 0.02
+    const deco: DecoPlacement = { id: DECO_PREFIX + newId(), kind, dims: dimsCm, pos: [x, y, z], rot: [0, 0, 0, 1], locked: false }
+    setHeap({ ...snapshot(heap), decos: [...(heap.decos ?? []), deco] })
+    setSelected(deco.id)
     scheduleSave()
   }
 
   function removeSelected() {
     if (!heap || !selected) return
-    setHeap({ ...heap, placements: heap.placements.filter((p) => p.itemId !== selected) })
+    const h = snapshot(heap)
+    setHeap({
+      ...h,
+      placements: h.placements.filter((p) => p.itemId !== selected),
+      decos: (h.decos ?? []).filter((d) => d.id !== selected),
+      hangs: (h.hangs ?? []).filter((x) => x.itemId !== selected && x.decoId !== selected),
+    })
     setSelected(null)
     scheduleSave()
   }
 
   function toggleLock() {
     if (!heap || !selected) return
-    persist() // aktuelle Lage sichern, bevor sich der Körpertyp ändert
+    const h = snapshot(heap)
     setHeap({
-      ...heap,
-      placements: heap.placements.map((p) => (p.itemId === selected ? { ...p, locked: !p.locked } : p)),
+      ...h,
+      placements: h.placements.map((p) => (p.itemId === selected ? { ...p, locked: !p.locked } : p)),
+      decos: (h.decos ?? []).map((d) => (d.id === selected ? { ...d, locked: !d.locked } : d)),
     })
     scheduleSave()
   }
 
-  // ---- Drehen und Kippen -----------------------------------------------------
+  // ---- Drehen und Kippen ---------------------------------------------------------
 
-  /** Körper mit neuer Drehung so ablegen, dass er auf dem steht, was unter ihm ist. */
+  /** Neue Drehung setzen und so anheben, dass die Unterseite auf gleicher Höhe bleibt */
   function placeWith(id: string, q: Quaternion) {
     const e = bodies.current.get(id)
     if (!e) return
     const t = e.body.translation()
-    const wh = worldHalf(q, e.half)
-    const y = supportHeight(t.x, t.z, wh[0], wh[2], others(id)) + wh[1] + 0.02
+    const before = worldHalf(quatOf(id), e.half)
+    const after = worldHalf(q, e.half)
     e.body.setRotation(q, true)
-    e.body.setTranslation({ x: t.x, y, z: t.z }, true)
+    e.body.setTranslation({ x: t.x, y: t.y - before[1] + after[1] + 0.01, z: t.z }, true)
     e.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
     e.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
     scheduleSave()
   }
 
-  function currentQuat(id: string) {
-    const r = bodies.current.get(id)!.body.rotation()
-    return new Quaternion(r.x, r.y, r.z, r.w)
-  }
-
   function turn() {
     if (!selected || !bodies.current.has(selected)) return
-    placeWith(selected, snapQuaternion(rotate90(currentQuat(selected), new Vector3(0, 1, 0))))
+    placeWith(selected, snapQuaternion(rotate90(quatOf(selected), new Vector3(0, 1, 0))))
   }
 
   function tip() {
@@ -213,68 +366,180 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
     const right = new Vector3(1, 0, 0)
     if (camera.current) right.setFromMatrixColumn(camera.current.matrixWorld, 0)
     const axis = Math.abs(right.x) > Math.abs(right.z) ? new Vector3(Math.sign(right.x), 0, 0) : new Vector3(0, 0, Math.sign(right.z))
-    placeWith(selected, snapQuaternion(rotate90(currentQuat(selected), axis)))
+    placeWith(selected, snapQuaternion(rotate90(quatOf(selected), axis)))
   }
 
-  // ---- Ziehen mit dem Finger ---------------------------------------------------
+  // ---- Aufhängen --------------------------------------------------------------------
 
-  const plane = useRef(new Plane(new Vector3(0, 1, 0), 0))
-  const hitPoint = useRef(new Vector3())
-
-  function intersect(e: ThreeEvent<PointerEvent>, y: number): Vector3 | null {
-    plane.current.constant = -y
-    return e.ray.intersectPlane(plane.current, hitPoint.current)
+  function hookWorld(deco: DecoPlacement, index: number): Vector3 | null {
+    const e = bodies.current.get(deco.id)
+    if (!e) return null
+    const [w, h, d] = decoMeters(deco.kind, deco.dims)
+    const local = DECOS[deco.kind].hooks(w, h, d)[index]
+    if (!local) return null
+    const t = e.body.translation()
+    return new Vector3(...local).applyQuaternion(quatOf(deco.id)).add(new Vector3(t.x, t.y, t.z))
   }
 
-  const onDown = useCallback(
-    (id: string, e: ThreeEvent<PointerEvent>) => {
-      e.stopPropagation()
-      setSelected(id)
-      const p = heapRef.current?.placements.find((x) => x.itemId === id)
-      const entry = bodies.current.get(id)
-      if (!entry || p?.locked) return
-      setPressing(true) // Kamera nicht drehen, solange man einen Körper festhält
-      ;(e.target as unknown as Element).setPointerCapture?.(e.pointerId)
-      const t = entry.body.translation()
-      const hit = intersect(e, t.y)
-      drag.current = {
-        id,
-        sx: e.nativeEvent.clientX,
-        sy: e.nativeEvent.clientY,
-        started: false,
-        planeY: t.y,
-        offX: hit ? t.x - hit.x : 0,
-        offZ: hit ? t.z - hit.z : 0,
-        y: t.y,
-      }
-    },
-    [],
-  )
+  function hangSelected() {
+    if (!heap || !selected || isDeco(selected)) return
+    const item = bodies.current.get(selected)
+    if (!item) return
+    const used = new Set((heap.hangs ?? []).map((x) => `${x.decoId}#${x.hook}`))
+    const t = item.body.translation()
+    let best: { deco: DecoPlacement; hook: number; pos: Vector3; dist: number } | null = null
+    for (const deco of heap.decos ?? []) {
+      const [w, h, d] = decoMeters(deco.kind, deco.dims)
+      DECOS[deco.kind].hooks(w, h, d).forEach((_, i) => {
+        if (used.has(`${deco.id}#${i}`)) return
+        const pos = hookWorld(deco, i)
+        if (!pos) return
+        const dist = Math.hypot(pos.x - t.x, pos.z - t.z)
+        if (!best || dist < best.dist) best = { deco, hook: i, pos, dist }
+      })
+    }
+    if (!best) {
+      setNotice('Kein freier Haken gefunden. Haken haben die Schaukel, die Etagere und das Regal an den Seiten.')
+      return
+    }
+    const b = best as { deco: DecoPlacement; hook: number; pos: Vector3 }
+    const length = 0.25
+    // Gegenstand aufrecht unter den Haken hängen
+    item.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true)
+    item.body.setTranslation({ x: b.pos.x, y: b.pos.y - length - item.half[1], z: b.pos.z }, true)
+    item.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+    item.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+    setNotice('')
+    setHeap({ ...snapshot(heap), hangs: [...(heap.hangs ?? []), { itemId: selected, decoId: b.deco.id, hook: b.hook, length }] })
+    scheduleSave()
+  }
 
-  const onMove = useCallback(
-    (id: string, e: ThreeEvent<PointerEvent>) => {
-      const d = drag.current
-      if (!d || d.id !== id) return
-      e.stopPropagation()
-      if (!d.started) {
-        if (Math.hypot(e.nativeEvent.clientX - d.sx, e.nativeEvent.clientY - d.sy) < 6) return
-        d.started = true
-        setDragging(id)
-      }
-      const hit = intersect(e, d.planeY)
-      const entry = bodies.current.get(id)
-      if (!hit || !entry) return
-      const x = Math.max(-LIMIT, Math.min(LIMIT, hit.x + d.offX))
-      const z = Math.max(-LIMIT, Math.min(LIMIT, hit.z + d.offZ))
-      const r = entry.body.rotation()
-      const wh = worldHalf(new Quaternion(r.x, r.y, r.z, r.w), entry.half)
-      const target = supportHeight(x, z, wh[0], wh[2], others(id)) + wh[1] + 0.04
-      // Nach oben sofort (nicht in andere Körper hinein), nach unten sanft
-      d.y = target > d.y ? target : d.y + (target - d.y) * 0.4
-      entry.body.setNextKinematicTranslation({ x, y: d.y, z })
-    },
-    [others],
-  )
+  function unhangSelected() {
+    if (!heap || !selected) return
+    setHeap({ ...snapshot(heap), hangs: (heap.hangs ?? []).filter((x) => x.itemId !== selected) })
+    scheduleSave()
+  }
+
+  function pushSwing() {
+    if (!selected) return
+    const seat = seats.current.get(selected)
+    if (!seat) return
+    const dir = new Vector3(0, 0, 1).applyQuaternion(quatOf(selected))
+    const m = seat.mass() * 1.4
+    seat.applyImpulse({ x: dir.x * m, y: 0, z: dir.z * m }, true)
+  }
+
+  // ---- Größe von Deko-Bausteinen --------------------------------------------------
+
+  function changeDims(next: [number, number, number]) {
+    setPendingDims(next)
+    window.clearTimeout(dimsTimer.current)
+    dimsTimer.current = window.setTimeout(() => commitDims(next), 350)
+  }
+
+  function commitDims(next: [number, number, number]) {
+    const h0 = heapRef.current
+    const id = selected
+    if (!h0 || !id) return
+    const h = snapshot(h0)
+    setHeap({
+      ...h,
+      decos: (h.decos ?? []).map((d) => {
+        if (d.id !== id) return d
+        const oldH = decoMeters(d.kind, d.dims)[1]
+        const newH = decoMeters(d.kind, next)[1]
+        // Unterseite bleibt, wo sie war
+        return { ...d, dims: next, pos: [d.pos[0], d.pos[1] + (newH - oldH) / 2 + 0.005, d.pos[2]] }
+      }),
+    })
+    setPendingDims(null)
+    scheduleSave()
+  }
+
+  // ---- Hintergrund -------------------------------------------------------------------
+
+  function setScene(kind: SceneKind) {
+    if (!heap || kind === scene) return
+    const h = snapshot(heap)
+    // Beim Polizeifoto steht die Wand hinten: Was dahinter liegt, kommt nach vorne
+    const fix = <T extends { pos: Vec3 }>(p: T): T =>
+      kind === 'mugshot' && p.pos[2] < MUGSHOT_WALL_Z + 0.4 ? { ...p, pos: [p.pos[0], p.pos[1] + 0.3, MUGSHOT_WALL_Z + 0.6] } : p
+    setHeap({ ...h, scene: kind, placements: h.placements.map(fix), decos: (h.decos ?? []).map(fix) })
+    // Körper neu aufbauen, damit sie die korrigierten Positionen übernehmen
+    setRebuild((n) => n + 1)
+    setSelected(null)
+    scheduleSave()
+  }
+  function setOptions(next: Partial<SceneOptions>) {
+    if (!heap) return
+    setHeap({ ...heap, sceneOptions: { ...options, ...next } })
+    scheduleSave()
+  }
+
+  // ---- Ziehen mit dem Finger -------------------------------------------------------
+
+  const isLocked = (id: string) => {
+    const h = heapRef.current
+    if (!h) return false
+    return isDeco(id) ? !!h.decos?.find((d) => d.id === id)?.locked : !!h.placements.find((p) => p.itemId === id)?.locked
+  }
+
+  const onDown = useCallback((id: string, e: ThreeEvent<PointerEvent>) => {
+    e.stopPropagation()
+    setSelected(id)
+    setNotice('')
+    if (!bodies.current.get(id) || isLocked(id)) return
+    setPressing(true) // Kamera nicht drehen, solange man einen Körper festhält
+    ;(e.target as unknown as Element).setPointerCapture?.(e.pointerId)
+    drag.current = { id, sx: e.nativeEvent.clientX, sy: e.nativeEvent.clientY, started: false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const onMove = useCallback((id: string, e: ThreeEvent<PointerEvent>) => {
+    const d = drag.current
+    if (!d || d.id !== id) return
+    e.stopPropagation()
+    if (!d.started) {
+      if (Math.hypot(e.nativeEvent.clientX - d.sx, e.nativeEvent.clientY - d.sy) < 6) return
+      d.started = true
+      setDragging(id)
+    }
+    const entry = bodies.current.get(id)
+    const api = physics.current
+    if (!entry || !api) return
+    const { world, rapier } = api
+    // Dorthin, wo der Finger zeigt: Zielstrahl von der Kamera durch den Finger
+    const o = e.ray.origin
+    const dir = e.ray.direction
+    const ray = new rapier.Ray({ x: o.x, y: o.y, z: o.z }, { x: dir.x, y: dir.y, z: dir.z })
+    const skip = excludedHandles(id)
+    const hit = world.castRayAndGetNormal(ray, 60, true, undefined, undefined, undefined, undefined, (c) => !skip.has(c.parent()?.handle ?? -1))
+    if (!hit) return
+    const p = ray.pointAt(hit.timeOfImpact)
+    const n = hit.normal
+    const wh = worldHalf(quatOf(id), entry.half)
+    let x: number
+    let y: number
+    let z: number
+    if (n.y > 0.5) {
+      // Auf eine Oberfläche stellen (Boden, Regalbrett, Etagere, anderer Gegenstand …)
+      x = p.x
+      z = p.z
+      y = p.y + wh[1] + 0.01
+    } else {
+      // An eine Wand oder Seite heranschieben; beim Loslassen fällt er herunter
+      const push = Math.abs(n.x) * wh[0] + Math.abs(n.z) * wh[2] + 0.01
+      x = p.x + n.x * push
+      z = p.z + n.z * push
+      y = Math.max(p.y, wh[1] + 0.01)
+    }
+    x = Math.max(-LIMIT + wh[0], Math.min(LIMIT - wh[0], x))
+    z = Math.max(minZRef.current + wh[2], Math.min(LIMIT - wh[2], z))
+    entry.body.setNextKinematicTranslation({ x, y, z })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const minZRef = useRef(minZ)
+  minZRef.current = minZ
 
   const endDrag = useCallback(() => {
     const d = drag.current
@@ -297,7 +562,6 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
     [endDrag],
   )
 
-  // Sicherheitsnetz, falls das Loslassen außerhalb passiert
   useEffect(() => {
     const up = () => drag.current && endDrag()
     window.addEventListener('pointerup', up)
@@ -308,13 +572,16 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
     }
   }, [endDrag])
 
-  // ---- Anzeige -------------------------------------------------------------------
+  // ---- Anzeige -------------------------------------------------------------------------
 
   const placedIds = new Set(heap?.placements.map((p) => p.itemId))
   const tray = items.filter((i) => !placedIds.has(i.id))
-  const selItem = items.find((i) => i.id === selected)
-  const selPlacement = placementOf(selected)
-  const locked = !!selPlacement?.locked
+  const selItem = selected && !isDeco(selected) ? items.find((i) => i.id === selected) : undefined
+  const selDeco = selected && isDeco(selected) ? heap?.decos?.find((d) => d.id === selected) : undefined
+  const selLocked = selItem ? !!heap?.placements.find((p) => p.itemId === selected)?.locked : !!selDeco?.locked
+  const selHang = selItem ? heap?.hangs?.find((x) => x.itemId === selected) : undefined
+  const hasHooks = (heap?.decos ?? []).some((d) => DECOS[d.kind].hooks(1, 1, 1).length > 0)
+  const shownDims = selDeco ? (pendingDims ?? selDeco.dims) : null
 
   return (
     <section className="heap">
@@ -325,17 +592,44 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
         <h2>Mein Haufen</h2>
       </div>
 
+      <div className="segmented heap-scenes" role="radiogroup" aria-label="Hintergrund">
+        {SCENES.map((s) => (
+          <button key={s.kind} type="button" role="radio" aria-checked={scene === s.kind} className={scene === s.kind ? 'on' : ''} onClick={() => setScene(s.kind)}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+      {scene === 'turntable' && (
+        <div className="turntable-controls">
+          <button className="btn small" onClick={() => setOptions({ running: !options.running })}>
+            {options.running ? 'Anhalten' : 'Drehen lassen'}
+          </button>
+          <label className="slider">
+            <span>Tempo</span>
+            <input
+              type="range"
+              min={0.1}
+              max={1.5}
+              step={0.05}
+              value={options.speed}
+              onChange={(e) => setOptions({ speed: Number(e.target.value) })}
+              aria-label="Tempo des Drehtellers"
+            />
+          </label>
+        </div>
+      )}
+
       <div className="heap-stage">
         {heap && (
           <Canvas
             shadows
             dpr={[1, 2]}
             resize={{ scroll: false, debounce: { scroll: 0, resize: 50 } }}
-            camera={{ position: [3.4, 3.4, 4.4], fov: 42, near: 0.05, far: 80 }}
+            camera={{ position: CAMERA_PRESETS.plain.position, fov: 42, near: 0.05, far: 80 }}
             onPointerMissed={() => setSelected(null)}
           >
-            <color attach="background" args={['#e9eeed']} />
-            <fog attach="fog" args={['#e9eeed', 9, 26]} />
+            <color attach="background" args={[scene === 'mugshot' ? '#d7dcdc' : '#e9eeed']} />
+            <fog attach="fog" args={[scene === 'mugshot' ? '#d7dcdc' : '#e9eeed', 9, 26]} />
             <hemisphereLight intensity={0.9} groundColor="#b8b0a2" />
             <directionalLight
               castShadow
@@ -348,16 +642,28 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
               shadow-camera-bottom={-5}
             />
             <CameraGrab target={camera} />
+            <CameraRig scene={scene} controls={controls} />
             <Suspense fallback={null}>
-              <Physics gravity={[0, -9.81, 0]}>
-                {/* Boden und unsichtbare Ränder, damit nichts herunterfällt */}
-                <RigidBody type="fixed" colliders={false}>
-                  <CuboidCollider args={[GROUND_HALF, 0.05, GROUND_HALF]} position={[0, -0.05, 0]} friction={1} />
-                  <CuboidCollider args={[0.05, 2, GROUND_HALF]} position={[GROUND_HALF, 2, 0]} />
-                  <CuboidCollider args={[0.05, 2, GROUND_HALF]} position={[-GROUND_HALF, 2, 0]} />
-                  <CuboidCollider args={[GROUND_HALF, 2, 0.05]} position={[0, 2, GROUND_HALF]} />
-                  <CuboidCollider args={[GROUND_HALF, 2, 0.05]} position={[0, 2, -GROUND_HALF]} />
-                </RigidBody>
+              <Physics gravity={[0, -9.81, 0]} key={rebuild}>
+                <PhysicsGrab target={physics} />
+                {scene === 'plain' && <Ground />}
+                {scene === 'mugshot' && <MugshotScene />}
+                {scene === 'turntable' && <TurntableScene options={options} />}
+
+                {(heap.decos ?? []).map((d) => (
+                  <DecoBody
+                    key={`${d.id}|${d.dims.join('x')}`}
+                    deco={d}
+                    selected={selected === d.id}
+                    dragging={dragging === d.id}
+                    onRegister={register}
+                    onSeat={registerSeat}
+                    onDown={onDown}
+                    onMove={onMove}
+                    onUp={onUp}
+                  />
+                ))}
+
                 {heap.placements.map((p) => {
                   const item = items.find((i) => i.id === p.itemId)
                   if (!item) return null
@@ -376,32 +682,33 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
                     />
                   )
                 })}
+
+                {(heap.hangs ?? []).map((hang: Hang) => {
+                  const a = bodies.current.get(hang.decoId)
+                  const b = bodies.current.get(hang.itemId)
+                  const deco = heap.decos?.find((d) => d.id === hang.decoId)
+                  if (!a || !b || !deco) return null
+                  const [w, h, d] = decoMeters(deco.kind, deco.dims)
+                  const hook = DECOS[deco.kind].hooks(w, h, d)[hang.hook]
+                  if (!hook) return null
+                  return (
+                    <Rope
+                      key={`${hang.itemId}|${a.body.handle}|${b.body.handle}`}
+                      a={a.body}
+                      b={b.body}
+                      anchorA={hook}
+                      anchorB={[0, b.half[1], 0]}
+                      length={hang.length}
+                    />
+                  )
+                })}
               </Physics>
             </Suspense>
-            {/* Großer Boden bis zum Horizont, die Baufläche ist durch das Raster markiert */}
-            <mesh rotation-x={-Math.PI / 2} position={[0, -0.001, 0]} receiveShadow>
-              <planeGeometry args={[80, 80]} />
-              <meshStandardMaterial color="#cbc5ba" roughness={1} />
-            </mesh>
-            <mesh rotation-x={-Math.PI / 2} receiveShadow>
-              <planeGeometry args={[GROUND_HALF * 2, GROUND_HALF * 2]} />
-              <meshStandardMaterial color="#d8d3c9" roughness={1} />
-            </mesh>
-            <Grid
-              position={[0, 0.002, 0]}
-              args={[GROUND_HALF * 2, GROUND_HALF * 2]}
-              cellSize={0.5}
-              sectionSize={1}
-              cellColor="#b9b2a6"
-              sectionColor="#9d958a"
-              fadeDistance={16}
-              infiniteGrid={false}
-            />
             <OrbitControls
               ref={controls}
               makeDefault
               enabled={!pressing}
-              target={[0, 0.4, 0]}
+              target={CAMERA_PRESETS.plain.target}
               minDistance={0.8}
               maxDistance={12}
               maxPolarAngle={Math.PI / 2.05}
@@ -411,43 +718,109 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
         <button className="heap-reset" onClick={() => controls.current?.reset()}>
           Ansicht zurücksetzen
         </button>
-        {heap && heap.placements.length === 0 && (
-          <p className="heap-empty">Tippe unten auf einen Gegenstand, um ihn auf deinen Haufen zu legen.</p>
+        {heap && heap.placements.length === 0 && !(heap.decos ?? []).length && (
+          <p className="heap-empty">Tippe unten auf einen Gegenstand oder einen Deko-Baustein, um ihn auf deinen Haufen zu legen.</p>
         )}
       </div>
 
       <div className="heap-tools" aria-live="polite">
-        {selItem ? (
+        {notice && <p className="notice">{notice}</p>}
+        {selItem && (
           <>
             <div className="heap-sel">
               <strong>{selItem.title}</strong>
               <span className="quiet small">
                 {dims(selItem.widthCm, selItem.heightCm, selItem.depthCm)}
-                {locked ? ' · festgesetzt' : ''}
+                {selLocked ? ' · festgesetzt' : ''}
+                {selHang ? ' · hängt' : ''}
               </span>
             </div>
             <div className="row">
-              <button className="btn small" onClick={turn} disabled={locked}>
+              <button className="btn small" onClick={turn} disabled={selLocked}>
                 ↻ Drehen
               </button>
-              <button className="btn small" onClick={tip} disabled={locked}>
+              <button className="btn small" onClick={tip} disabled={selLocked}>
                 Kippen
               </button>
+              {selHang ? (
+                <button className="btn small" onClick={unhangSelected}>
+                  Abhängen
+                </button>
+              ) : (
+                hasHooks && (
+                  <button className="btn small" onClick={hangSelected} disabled={selLocked}>
+                    Aufhängen
+                  </button>
+                )
+              )}
               <button className="btn small" onClick={toggleLock}>
-                {locked ? 'Lösen' : 'Festsetzen'}
+                {selLocked ? 'Lösen' : 'Festsetzen'}
               </button>
               <button className="btn small" onClick={() => onOpen(selItem.id)}>
                 Details
               </button>
-              <button className="btn small danger-ghost" onClick={removeSelected} disabled={locked}>
+              <button className="btn small danger-ghost" onClick={removeSelected} disabled={selLocked}>
                 Herausnehmen
               </button>
             </div>
           </>
-        ) : (
+        )}
+        {selDeco && shownDims && (
+          <>
+            <div className="heap-sel">
+              <strong>
+                {DECOS[selDeco.kind].label} <span className="tag">Deko</span>
+              </strong>
+              <span className="quiet small">Nicht zum Verschenken{selDeco.locked ? ' · festgesetzt' : ''}</span>
+            </div>
+            <div className="dims-sliders">
+              {[0, 1, 2].map((i) => {
+                const range = DECOS[selDeco.kind].ranges[i]
+                if (!range) return null
+                return (
+                  <label key={i} className="slider">
+                    <span>
+                      {DECOS[selDeco.kind].dimLabels[i]} <strong>{shownDims[i]} cm</strong>
+                    </span>
+                    <input
+                      type="range"
+                      min={range[0]}
+                      max={range[1]}
+                      step={5}
+                      value={shownDims[i]}
+                      disabled={selDeco.locked}
+                      onChange={(e) => {
+                        const next = [...shownDims] as [number, number, number]
+                        next[i] = Number(e.target.value)
+                        changeDims(next)
+                      }}
+                    />
+                  </label>
+                )
+              })}
+            </div>
+            <div className="row">
+              {selDeco.kind === 'swing' && (
+                <button className="btn small" onClick={pushSwing}>
+                  Anschubsen
+                </button>
+              )}
+              <button className="btn small" onClick={turn} disabled={selDeco.locked}>
+                ↻ Drehen
+              </button>
+              <button className="btn small" onClick={toggleLock}>
+                {selDeco.locked ? 'Lösen' : 'Festsetzen'}
+              </button>
+              <button className="btn small danger-ghost" onClick={removeSelected} disabled={selDeco.locked}>
+                Entfernen
+              </button>
+            </div>
+          </>
+        )}
+        {!selItem && !selDeco && !notice && (
           <p className="quiet small">
-            Tippe einen Gegenstand an, um ihn zu drehen oder zu kippen. Mit dem Finger ziehst du ihn an eine andere Stelle
-            oder auf einen anderen Gegenstand. Wischen auf der freien Fläche dreht die Ansicht, zwei Finger zoomen.
+            Tippe etwas an, um es zu bearbeiten. Halt es mit dem Finger fest und zeig dorthin, wo es hin soll, zum Beispiel in
+            ein Regalfach oder auf eine Etage. Wischen auf der freien Fläche dreht die Ansicht, zwei Finger zoomen.
           </p>
         )}
       </div>
@@ -464,6 +837,22 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
           {items.length ? 'Alle Gegenstände liegen auf dem Haufen.' : 'Du hast noch keine Gegenstände erfasst.'}
         </p>
       )}
+
+      <h3 className="section-title">Deko hinzufügen</h3>
+      <p className="quiet small">Deko-Bausteine sind nicht zum Verschenken da. Sie helfen dir, deinen Haufen schön zu arrangieren.</p>
+      <div className="tray scroll">
+        {DECO_KINDS.map((kind) => (
+          <button key={kind} className="tray-item deco-item" onClick={() => addDeco(kind)} aria-label={`${DECOS[kind].label} hinzufügen`}>
+            <span className="deco-icon">
+              <DecoIcon kind={kind} />
+            </span>
+            <span className="tray-title">{DECOS[kind].label}</span>
+            <span className="tray-plus" aria-hidden="true">
+              +
+            </span>
+          </button>
+        ))}
+      </div>
     </section>
   )
 }

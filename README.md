@@ -25,6 +25,10 @@ Die aktuelle Version läuft unter **https://altersenator.github.io/haufenweise/*
 - 3D-Ansicht mit React Three Fiber, Physik mit Rapier (`src/heap/`)
 - Jeder Gegenstand ist ein Quader in echter Größe, die entzerrten Fotos liegen auf den Seiten
 - Aus der Ablage hinzufügen (sucht sich einen freien Platz), mit dem Finger ziehen und stapeln, drehen, kippen, festsetzen, herausnehmen
+- Ziehen per Zielstrahl (Rapier-Raycast): Der Gegenstand landet dort, wo der Finger hinzeigt, auch in Regalfächern; beim Ziehen ist er ein Sensor und schiebt nichts an
+- Deko-Bausteine (`src/heap/decos.ts`): Regal 4 × 4, Siegertreppchen, Schaukel mit Drehgelenk, Etagere; Größe per Regler, aus einfachen Teilen für Grafik und Physik zugleich
+- Aufhängen an Haken per Seilgelenk (`src/heap/Rope.tsx`)
+- Hintergründe (`src/heap/scenes.tsx`): freie Fläche, Polizeifoto-Wand mit Messlatte in echten Zentimetern und Blitz, Drehteller (kinematischer Körper, Tempo einstellbar)
 - Die Aufstellung wird lokal gespeichert (IndexedDB, Store `heaps`)
 - Der 3D-Teil wird erst beim Öffnen geladen (eigener Chunk, etwa 1,1 MB komprimiert)
 

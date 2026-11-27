@@ -126,9 +126,43 @@ export interface Placement {
   locked: boolean
 }
 
+/** Deko-Bausteine: nicht zum Verschenken, nur fürs Arrangement */
+export type DecoKind = 'shelf' | 'podium' | 'swing' | 'etagere'
+
+export interface DecoPlacement {
+  id: string
+  kind: DecoKind
+  /** Breite, Höhe, Tiefe in Zentimetern (vom Nutzer einstellbar) */
+  dims: [number, number, number]
+  pos: [number, number, number]
+  rot: [number, number, number, number]
+  locked: boolean
+}
+
+/** Ein Gegenstand hängt an einem Haken eines Deko-Bausteins */
+export interface Hang {
+  itemId: string
+  decoId: string
+  hook: number
+  /** Seillänge in Metern */
+  length: number
+}
+
+export type SceneKind = 'plain' | 'mugshot' | 'turntable'
+
+export interface SceneOptions {
+  /** Drehteller: Umdrehungsgeschwindigkeit in Radiant pro Sekunde */
+  speed: number
+  running: boolean
+}
+
 export interface Heap {
   /** 'private' für den eigenen Haufen, später auch Community-Haufen */
   id: string
   placements: Placement[]
+  decos?: DecoPlacement[]
+  hangs?: Hang[]
+  scene?: SceneKind
+  sceneOptions?: SceneOptions
   updatedAt: number
 }
