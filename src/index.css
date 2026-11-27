@@ -614,9 +614,14 @@ textarea {
   position: absolute;
   inset: 0;
 }
-.corners-img {
+.corners-view {
   position: absolute;
+  overflow: hidden;
   pointer-events: none;
+}
+.corners-view img {
+  position: absolute;
+  max-width: none;
 }
 .corners-shade {
   fill: var(--bg);

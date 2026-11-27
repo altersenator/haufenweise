@@ -5,7 +5,13 @@ Jeder baut aus seinen Gegenständen einen virtuellen 3D-Haufen, andere stöbern 
 
 Das ausführliche Konzept liegt als Dokument bei Claude.
 
+Die aktuelle Version läuft unter **https://altersenator.github.io/haufenweise/** und wird bei jeder Änderung an `main` automatisch neu veröffentlicht (`.github/workflows/deploy.yml`).
+
 ## Stand: Etappe 1, Gegenstände erfassen
+
+- **Scan-Modus:** Live-Kamera, Rahmen um die sichtbare Seite (aus der Freistell-Maske, `src/lib/detect.ts`), automatisches Foto bei ruhigem, frontalem Bild, Seitenzuordnung über Kompass und Neigung (`src/lib/orientation.ts`)
+- Alternativ Rundum-Video mit vorgeschlagenen Standbildern oder Einzelfotos
+- Ecken jeder Seite markieren, Perspektive entzerren (`src/lib/perspective.ts`)
 
 - Foto aufnehmen oder aus der Galerie wählen
 - Hintergrund wird direkt auf dem Gerät entfernt (kein Upload)

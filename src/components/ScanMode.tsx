@@ -48,6 +48,8 @@ export function ScanMode({ already, onDone, onCancel }: Props) {
   const busyRef = useRef(false)
   const history = useRef<{ t: number; quad: Quad }[]>([])
   const lastRaw = useRef<Quad | null>(null)
+  // Nach einem Foto muss sich das Bild erst deutlich ändern, bevor die nächste Seite ausgelöst wird
+  const needsChange = useRef<Quad | null>(null)
   const startHeading = useRef<number | null>(null)
   const dirRef = useRef<CameraDirection | null>(null)
   const capturedRef = useRef(captured)
@@ -129,14 +131,16 @@ export function ScanMode({ already, onDone, onCancel }: Props) {
     return c
   }
 
-  async function capture(face: FaceKey, corners: Quad) {
+  async function capture(face: FaceKey, corners: Quad, frameIn?: HTMLCanvasElement) {
     busyRef.current = true
     setBusy(true)
     setFlash(true)
     setTimeout(() => setFlash(false), 180)
     try {
-      const frame = grabFrame()
+      // Möglichst genau das Bild nehmen, auf dem der Rahmen erkannt wurde
+      const frame = frameIn ?? grabFrame()
       if (face === 'front' && dirRef.current) startHeading.current = dirRef.current.heading
+      needsChange.current = corners
       const draft = await makeScannedDraft(frame, corners)
       setCaptured((prev) => ({ ...prev, [face]: draft }))
       setManual(null)
@@ -165,24 +169,33 @@ export function ScanMode({ already, onDone, onCancel }: Props) {
         continue
       }
       try {
-        const mask = await predictMask(v)
+        const t0 = performance.now()
+        const frame = grabFrame()
+        const mask = await predictMask(frame)
+        ;(window as unknown as { __scanMs?: number }).__scanMs = performance.now() - t0
         if (!running.current) break
         const det = detectQuad(mask, v.videoWidth / v.videoHeight)
         setIssue(det.issue)
         lastRaw.current = det.quad
         setQuad((prev) => (det.quad ? smoothQuad(prev, det.quad, 0.6) : null))
 
+        if (needsChange.current && (det.issue !== 'none' || !det.quad || clearlyDifferent(det.quad, needsChange.current))) {
+          needsChange.current = null
+        }
         const face = targetFace()
-        const already = !!capturedRef.current[face] && !manualRef.current
+        // Die Oberseite nur automatisch, wenn das Handy wirklich nach unten zeigt (oder man sie angetippt hat)
+        const topBlocked = face === 'top' && !manualRef.current && !(dirRef.current && dirRef.current.down > 0.72)
+        const already = ((!!capturedRef.current[face] || !!needsChange.current) && !manualRef.current) || topBlocked
         const now = performance.now()
         if (det.quad && det.issue === 'none' && !already) {
-          const h = history.current.filter((e) => now - e.t < STEADY_MS * 1.6)
-          h.push({ t: now, quad: det.quad })
-          const stable = h.filter((e) => quadDistance(e.quad, det.quad!) < STEADY_TOLERANCE)
+          // Alle bisherigen Rahmen müssen nah am aktuellen liegen, sonst beginnt die Zählung neu
+          const h = history.current
+          const stable = h.every((e) => quadDistance(e.quad, det.quad!) < STEADY_TOLERANCE) ? h : []
+          stable.push({ t: now, quad: det.quad })
           history.current = stable
           const span = stable.length > 1 ? now - stable[0].t : 0
           setProgress(Math.min(1, span / STEADY_MS))
-          if (span >= STEADY_MS) await capture(face, det.quad)
+          if (span >= STEADY_MS) await capture(face, det.quad, frame)
         } else {
           history.current = []
           setProgress(0)
@@ -211,11 +224,13 @@ export function ScanMode({ already, onDone, onCancel }: Props) {
       ? ''
       : busy
         ? 'Foto wird verarbeitet …'
-        : targetDone
-          ? `${FACE_LABELS[target]} ist schon erfasst. ${NEXT_HINT[target]}`
-          : issue === 'none'
-            ? `${FACE_LABELS[target]}: ${ISSUE_TEXT.none}`
-            : ISSUE_TEXT[issue]
+        : target === 'top' && !manual && !(dir && dir.down > 0.72) && !captured.top
+          ? 'Für die Oberseite das Handy schräg nach unten richten oder unten auf „Oben“ tippen.'
+          : targetDone
+            ? `${FACE_LABELS[target]} ist schon erfasst. ${NEXT_HINT[target]}`
+            : issue === 'none'
+              ? `${FACE_LABELS[target]}: ${ISSUE_TEXT.none}`
+              : ISSUE_TEXT[issue]
   const frameClass = issue === 'none' && !targetDone ? (progress > 0 ? 'ok' : 'seen') : quad ? 'warn' : ''
 
   return (
@@ -294,6 +309,20 @@ export function ScanMode({ already, onDone, onCancel }: Props) {
       )}
     </div>
   )
+}
+
+/** Hat sich der Rahmen so verändert, dass man wohl eine andere Seite sieht? */
+function clearlyDifferent(a: Quad, b: Quad): boolean {
+  const size = (q: Quad) => {
+    const w = (Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]) + Math.hypot(q[2][0] - q[3][0], q[2][1] - q[3][1])) / 2
+    const h = (Math.hypot(q[3][0] - q[0][0], q[3][1] - q[0][1]) + Math.hypot(q[2][0] - q[1][0], q[2][1] - q[1][1])) / 2
+    return { w, h }
+  }
+  const sa = size(a)
+  const sb = size(b)
+  const ratio = sa.w / sa.h / (sb.w / sb.h)
+  const area = (sa.w * sa.h) / (sb.w * sb.h)
+  return quadDistance(a, b) > 0.12 || ratio < 0.78 || ratio > 1.28 || area < 0.7 || area > 1.43
 }
 
 /** Vor dem Start einmal aufrufen (nach einem Tipp), damit das iPhone den Kompass freigibt. */

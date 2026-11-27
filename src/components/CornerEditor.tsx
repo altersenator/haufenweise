@@ -17,6 +17,21 @@ const PAD = 34 // Platz rund ums Foto für Griffe und Beschriftungen
 const MAX_H = 340
 const CORNER_NAMES = ['oben links', 'oben rechts', 'unten rechts', 'unten links']
 
+/** Bildausschnitt rund um die Ecken, mit Rand. Werte relativ zur Bildgröße. */
+function viewAround(q: Quad) {
+  const xs = q.map((p) => p[0])
+  const ys = q.map((p) => p[1])
+  const minX = Math.min(...xs)
+  const maxX = Math.max(...xs)
+  const minY = Math.min(...ys)
+  const maxY = Math.max(...ys)
+  const w = Math.min(1, Math.max(0.35, (maxX - minX) * 1.6))
+  const h = Math.min(1, Math.max(0.35, (maxY - minY) * 1.6))
+  const x = Math.min(1 - w, Math.max(0, (minX + maxX) / 2 - w / 2))
+  const y = Math.min(1 - h, Math.max(0, (minY + maxY) / 2 - h / 2))
+  return { x, y, w, h }
+}
+
 export function CornerEditor({ imageUrl, corners, edges, dimValues, onChange }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const [cw, setCw] = useState(320)
@@ -36,20 +51,26 @@ export function CornerEditor({ imageUrl, corners, edges, dimValues, onChange }: 
 
   const nw = natural?.w ?? 4
   const nh = natural?.h ?? 3
-  const scale = Math.min((cw - PAD * 2) / nw, MAX_H / nh)
-  const dw = nw * scale
-  const dh = nh * scale
+
+  // Ausschnitt: Ist die Seite im Foto klein (zum Beispiel beim Scannen), wird auf sie gezoomt.
+  // Der Ausschnitt richtet sich nach den gespeicherten Ecken und bleibt beim Ziehen stehen.
+  const view = viewAround(corners)
+  const scale = Math.min((cw - PAD * 2) / (nw * view.w), MAX_H / (nh * view.h))
+  const dw = nw * view.w * scale // sichtbarer Ausschnitt in Bildschirmpunkten
+  const dh = nh * view.h * scale
   const ox = (cw - dw) / 2
   const oy = PAD
   const height = dh + PAD * 2
+  const fullW = dw / view.w
+  const fullH = dh / view.h
 
-  const toPx = ([x, y]: Pt): Pt => [ox + x * dw, oy + y * dh]
+  const toPx = ([x, y]: Pt): Pt => [ox + ((x - view.x) / view.w) * dw, oy + ((y - view.y) / view.h) * dh]
   const pts = local.map(toPx)
 
   function pointFromEvent(e: React.PointerEvent): Pt {
     const rect = box.current!.getBoundingClientRect()
-    const x = (e.clientX - rect.left - ox) / dw
-    const y = (e.clientY - rect.top - oy) / dh
+    const x = view.x + ((e.clientX - rect.left - ox) / dw) * view.w
+    const y = view.y + ((e.clientY - rect.top - oy) / dh) * view.h
     return [Math.min(1, Math.max(0, x)), Math.min(1, Math.max(0, y))]
   }
 
@@ -82,13 +103,15 @@ export function CornerEditor({ imageUrl, corners, edges, dimValues, onChange }: 
 
   return (
     <div className="corners" ref={box} style={{ height }}>
-      <img
-        src={imageUrl}
-        alt=""
-        className="corners-img checker-bg"
-        style={{ left: ox, top: oy, width: dw, height: dh }}
-        onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
-      />
+      <div className="corners-view" style={{ left: ox, top: oy, width: dw, height: dh }}>
+        <img
+          src={imageUrl}
+          alt=""
+          className="checker-bg"
+          style={{ left: -view.x * fullW, top: -view.y * fullH, width: fullW, height: fullH }}
+          onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+        />
+      </div>
       <svg width={cw} height={height} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
         {/* Außerhalb der markierten Fläche abdunkeln */}
         <path
