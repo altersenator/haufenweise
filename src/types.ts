@@ -114,3 +114,21 @@ export const FACE_EDGES: Record<FaceKey, [EdgeInfo, EdgeInfo, EdgeInfo, EdgeInfo
 }
 
 export const DIM_LABELS: Record<Dim, string> = { width: 'Breite', height: 'Höhe', depth: 'Tiefe', none: '' }
+
+// ---- Haufen ----------------------------------------------------------------
+
+/** Wo ein Gegenstand im 3D-Haufen liegt. Position in Metern, Drehung als Quaternion. */
+export interface Placement {
+  itemId: string
+  pos: [number, number, number]
+  rot: [number, number, number, number]
+  /** Festgesetzt: bleibt, wo er ist, und lässt sich nicht verschieben */
+  locked: boolean
+}
+
+export interface Heap {
+  /** 'private' für den eigenen Haufen, später auch Community-Haufen */
+  id: string
+  placements: Placement[]
+  updatedAt: number
+}

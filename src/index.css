@@ -975,3 +975,130 @@ h4 {
   border-color: rgb(255 255 255 / 0.35);
   color: #fff;
 }
+
+/* 3D-Haufen */
+.heap-cta {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  padding: 18px 20px;
+  margin: 8px 0 4px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--petrol);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+.heap-cta:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+}
+.heap-cta-title {
+  font: 700 28px/1.05 'Barlow Condensed', sans-serif;
+}
+.heap-cta-text {
+  opacity: 0.85;
+}
+.heap-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.heap-head .back {
+  margin: 0 0 0 -12px;
+}
+.heap-stage {
+  position: relative;
+  height: min(62vh, 560px);
+  min-height: 340px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #e9eeed;
+  touch-action: none;
+}
+.heap-reset {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  min-height: 40px;
+  padding: 6px 12px;
+  border-radius: 99px;
+  border: 0;
+  background: rgb(255 255 255 / 0.85);
+  color: #12343b;
+  font: 600 14px Barlow, sans-serif;
+  cursor: pointer;
+}
+.heap-empty {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.9);
+  color: #12343b;
+  text-align: center;
+  pointer-events: none;
+}
+.heap-tools {
+  display: grid;
+  gap: 10px;
+  padding: 14px 0 4px;
+  min-height: 96px;
+}
+.heap-sel {
+  display: grid;
+}
+.heap-sel strong {
+  font-size: 18px;
+}
+.tray {
+  display: flex;
+  gap: 10px;
+  padding-bottom: 6px;
+}
+.tray-item {
+  flex: none;
+  width: 120px;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border-radius: var(--radius);
+  border: 1.5px solid var(--line);
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  position: relative;
+  cursor: pointer;
+}
+.tray-thumb {
+  height: 90px;
+  border-radius: 8px;
+}
+.tray-title {
+  font-weight: 600;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tray-plus {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--orange);
+  color: var(--orange-ink);
+  font-weight: 700;
+  font-size: 18px;
+}

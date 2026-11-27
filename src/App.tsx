@@ -1,6 +1,6 @@
 // Haufenweise · Etappe 1
 // Gegenstände fotografieren, freistellen, mit Maßen versehen und auf dem Gerät speichern.
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { ItemDetail } from './components/ItemDetail'
 import { ItemEditor } from './components/ItemEditor'
 import { SizeComparison } from './components/SizeComparison'
@@ -9,7 +9,15 @@ import { dims } from './lib/format'
 import { useObjectUrl } from './lib/useObjectUrl'
 import type { Item, ItemDraft } from './types'
 
-type View = { name: 'list' } | { name: 'add' } | { name: 'detail'; id: string } | { name: 'edit'; id: string }
+// Der 3D-Haufen wird erst geladen, wenn man ihn öffnet. So startet die App schneller.
+const HeapView = lazy(() => import('./heap/HeapView'))
+
+type View =
+  | { name: 'list' }
+  | { name: 'add' }
+  | { name: 'heap' }
+  | { name: 'detail'; id: string; from?: 'heap' }
+  | { name: 'edit'; id: string }
 
 function ItemCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
   const url = useObjectUrl(item.image)
@@ -72,7 +80,7 @@ export default function App() {
         <button className="brand" onClick={() => setView({ name: 'list' })}>
           Haufenweise
         </button>
-        <span className="stage">Testversion · Etappe 1</span>
+        <span className="stage">Testversion · Etappe 2</span>
       </header>
 
       <main className="main">
@@ -96,6 +104,10 @@ export default function App() {
 
             {items.length > 0 && (
               <>
+                <button className="heap-cta" onClick={() => setView({ name: 'heap' })}>
+                  <span className="heap-cta-title">Haufen bauen</span>
+                  <span className="heap-cta-text">Leg deine Gegenstände in 3D zu einem Haufen zusammen.</span>
+                </button>
                 <h2 className="section-title">Größenvergleich</h2>
                 <SizeComparison items={items} onOpen={(id) => setView({ name: 'detail', id })} />
                 <h2 className="section-title">Alle Gegenstände</h2>
@@ -122,12 +134,29 @@ export default function App() {
           </section>
         )}
 
+        {view.name === 'heap' && (
+          <Suspense
+            fallback={
+              <section className="editor working">
+                <div className="spinner" aria-hidden="true" />
+                <p>3D-Haufen wird geladen …</p>
+              </section>
+            }
+          >
+            <HeapView
+              items={items}
+              onBack={() => setView({ name: 'list' })}
+              onOpen={(id) => setView({ name: 'detail', id, from: 'heap' })}
+            />
+          </Suspense>
+        )}
+
         {view.name === 'add' && <ItemEditor onSave={addItem} onCancel={() => setView({ name: 'list' })} />}
 
         {view.name === 'detail' && current && (
           <ItemDetail
             item={current}
-            onBack={() => setView({ name: 'list' })}
+            onBack={() => setView(view.from === 'heap' ? { name: 'heap' } : { name: 'list' })}
             onEdit={() => setView({ name: 'edit', id: current.id })}
             onDelete={() => removeItem(current.id)}
           />

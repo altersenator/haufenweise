@@ -1,10 +1,11 @@
 // Speichert Gegenstände vorerst nur auf diesem Gerät (IndexedDB im Browser).
 // In Etappe 3 kommt Supabase dazu, dann liegen die Daten auf einem Server.
 // Wenn der Browser IndexedDB nicht erlaubt, merken wir uns die Daten nur im Arbeitsspeicher.
-import type { Item } from '../types'
+import type { Heap, Item } from '../types'
 
 const DB_NAME = 'haufenweise'
 const STORE = 'items'
+const HEAPS = 'heaps'
 
 let dbPromise: Promise<IDBDatabase> | null = null
 const memory = new Map<string, Item>()
@@ -14,9 +15,12 @@ function openDb(): Promise<IDBDatabase> {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
       try {
-        const req = indexedDB.open(DB_NAME, 1)
+        // Version 2: zusätzlich die Aufstellung der Haufen
+        const req = indexedDB.open(DB_NAME, 2)
         req.onupgradeneeded = () => {
-          req.result.createObjectStore(STORE, { keyPath: 'id' })
+          const db = req.result
+          if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' })
+          if (!db.objectStoreNames.contains(HEAPS)) db.createObjectStore(HEAPS, { keyPath: 'id' })
         }
         req.onsuccess = () => resolve(req.result)
         req.onerror = () => reject(req.error)
@@ -31,11 +35,12 @@ function openDb(): Promise<IDBDatabase> {
 async function withStore<T>(
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => IDBRequest<T>,
+  storeName = STORE,
 ): Promise<T> {
   const db = await openDb()
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, mode)
-    const req = run(tx.objectStore(STORE))
+    const tx = db.transaction(storeName, mode)
+    const req = run(tx.objectStore(storeName))
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
@@ -86,5 +91,29 @@ export function newId(): string {
     return crypto.randomUUID()
   } catch {
     return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+}
+
+// ---- Haufen ----------------------------------------------------------------
+
+const memoryHeaps = new Map<string, Heap>()
+
+export async function loadHeap(id: string): Promise<Heap> {
+  const empty: Heap = { id, placements: [], updatedAt: 0 }
+  if (useMemory) return memoryHeaps.get(id) ?? empty
+  try {
+    return (await withStore<Heap | undefined>('readonly', (s) => s.get(id), HEAPS)) ?? empty
+  } catch {
+    return memoryHeaps.get(id) ?? empty
+  }
+}
+
+export async function saveHeap(heap: Heap): Promise<void> {
+  memoryHeaps.set(heap.id, heap)
+  if (useMemory) return
+  try {
+    await withStore('readwrite', (s) => s.put(heap), HEAPS)
+  } catch {
+    /* bleibt im Arbeitsspeicher */
   }
 }

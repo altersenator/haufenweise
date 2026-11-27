@@ -20,6 +20,14 @@ Die aktuelle Version läuft unter **https://altersenator.github.io/haufenweise/*
 - Größenvergleich aller Gegenstände im selben Maßstab, mit einer 170 cm großen Person
 - Speichern, bearbeiten und löschen, vorerst nur lokal im Browser (IndexedDB)
 
+## Stand: Etappe 2, den eigenen Haufen bauen
+
+- 3D-Ansicht mit React Three Fiber, Physik mit Rapier (`src/heap/`)
+- Jeder Gegenstand ist ein Quader in echter Größe, die entzerrten Fotos liegen auf den Seiten
+- Aus der Ablage hinzufügen (sucht sich einen freien Platz), mit dem Finger ziehen und stapeln, drehen, kippen, festsetzen, herausnehmen
+- Die Aufstellung wird lokal gespeichert (IndexedDB, Store `heaps`)
+- Der 3D-Teil wird erst beim Öffnen geladen (eigener Chunk, etwa 1,1 MB komprimiert)
+
 ## Technik
 
 | Teil | Lösung |
