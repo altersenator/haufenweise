@@ -12,6 +12,10 @@ export interface FaceDraft {
   corners: Quad
   /** Bei bereits gespeicherten Seiten: war das gespeicherte Foto freigestellt? */
   originalIsCutout?: boolean
+  /** true, wenn Original und freigestelltes Bild gleich groß sind (Ecken passen zu beiden) */
+  aligned?: boolean
+  /** Vom Scan-Modus automatisch erkannte Ecken, für „Ecken zurücksetzen“ */
+  autoCorners?: Quad
 }
 
 export function draftSource(f: FaceDraft): Blob {
@@ -61,4 +65,25 @@ export async function rectifyFace(
   const [ow, oh] = outputSize(ratio)
   const out = warpQuad(src, f.corners, ow, oh)
   return canvasToBlob(out, true)
+}
+
+/**
+ * Seite aus dem Scan-Modus: Die Ecken wurden schon automatisch erkannt.
+ * Das freigestellte Bild bleibt so groß wie das Foto, damit die Ecken zu beiden passen.
+ */
+export async function makeScannedDraft(frame: HTMLCanvasElement, corners: Quad): Promise<FaceDraft> {
+  const original = await canvasToBlob(frame, false)
+  let cutout: Blob | null = null
+  try {
+    cutout = await canvasToBlob(await removeBackground(frame, false), true)
+  } catch (err) {
+    console.error(err)
+  }
+  return { original, cutout, useCutout: !!cutout, corners, aligned: true, autoCorners: corners }
+}
+
+/** Ecken, auf die „Ecken zurücksetzen“ springt */
+export function defaultCorners(f: FaceDraft): Quad {
+  if (f.autoCorners) return f.autoCorners
+  return draftIsCutout(f) ? DEFAULT_CORNERS_CUTOUT : DEFAULT_CORNERS_PHOTO
 }

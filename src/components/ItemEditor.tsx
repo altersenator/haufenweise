@@ -3,7 +3,7 @@
 // Angaben und Maße eintragen, speichern.
 import { useEffect, useRef, useState } from 'react'
 import { loadPhoto, preloadModel } from '../lib/backgroundRemoval'
-import { draftIsCutout, draftSource, makeFaceDraft, rectifyFace, type FaceDraft } from '../lib/faces'
+import { defaultCorners, draftIsCutout, draftSource, makeFaceDraft, rectifyFace, type FaceDraft } from '../lib/faces'
 import { cm } from '../lib/format'
 import { DEFAULT_CORNERS_CUTOUT, DEFAULT_CORNERS_PHOTO, quadRatio } from '../lib/perspective'
 import { useObjectUrl, useObjectUrls } from '../lib/useObjectUrl'
@@ -22,9 +22,10 @@ import {
 import { BodyPreview } from './BodyPreview'
 import { CornerEditor } from './CornerEditor'
 import { PhotoAxes } from './PhotoAxes'
+import { prepareScan, ScanMode } from './ScanMode'
 import { VideoAround } from './VideoAround'
 
-type Phase = 'pick' | 'working' | 'video' | 'form'
+type Phase = 'pick' | 'working' | 'video' | 'scan' | 'form'
 type Faces = Partial<Record<FaceKey, FaceDraft>>
 
 interface Props {
@@ -225,6 +226,19 @@ export function ItemEditor({ initial, onSave, onCancel }: Props) {
     setPhase('form')
   }
 
+  async function startScan() {
+    setNotice('')
+    await prepareScan()
+    setPhase('scan')
+  }
+
+  function handleScanned(drafts: Faces) {
+    setFaces((prev) => ({ ...prev, ...drafts }))
+    const first = FACE_KEYS.find((k) => drafts[k])
+    if (first) setActive(first)
+    setPhase('form')
+  }
+
   function takePhoto(key: FaceKey, from: 'camera' | 'gallery') {
     target.current = key
     ;(from === 'camera' ? photoCamera : photoGallery).current?.click()
@@ -232,12 +246,14 @@ export function ItemEditor({ initial, onSave, onCancel }: Props) {
 
   function toggleCutout(useCutout: boolean) {
     if (!activeDraft) return
-    setFace(active, { ...activeDraft, useCutout, corners: useCutout ? DEFAULT_CORNERS_CUTOUT : DEFAULT_CORNERS_PHOTO })
+    // Beim Scannen sind beide Bilder gleich groß, dann bleiben die Ecken, wo sie sind
+    const corners = activeDraft.aligned ? activeDraft.corners : useCutout ? DEFAULT_CORNERS_CUTOUT : DEFAULT_CORNERS_PHOTO
+    setFace(active, { ...activeDraft, useCutout, corners })
   }
 
   function resetCorners() {
     if (!activeDraft) return
-    setFace(active, { ...activeDraft, corners: draftIsCutout(activeDraft) ? DEFAULT_CORNERS_CUTOUT : DEFAULT_CORNERS_PHOTO })
+    setFace(active, { ...activeDraft, corners: defaultCorners(activeDraft) })
   }
 
   const errors = {
@@ -305,10 +321,16 @@ export function ItemEditor({ initial, onSave, onCancel }: Props) {
       <section className="editor">
         {fileInputs}
         <h2>Neuer Gegenstand</h2>
-        <p className="lead">Fotografiere den Gegenstand von vorne oder film einmal rundherum, dann ist jede Seite bebildert.</p>
+        <p className="lead">
+          Scanne den Gegenstand, indem du mit der Kamera einmal herumgehst. Die App erkennt jede Seite und fotografiert sie
+          automatisch.
+        </p>
         {notice && <p className="notice">{notice}</p>}
         <div className="pick">
-          <button className="btn primary big" onClick={() => videoCamera.current?.click()}>
+          <button className="btn primary big" onClick={startScan}>
+            Gegenstand scannen
+          </button>
+          <button className="btn big" onClick={() => videoCamera.current?.click()}>
             Einmal rundherum filmen
           </button>
           <button className="btn big" onClick={() => takePhoto('front', 'camera')}>
@@ -324,7 +346,7 @@ export function ItemEditor({ initial, onSave, onCancel }: Props) {
           </div>
         </div>
         <p className="quiet small">
-          Tipp fürs Video: Starte vorne, geh langsam und gleichmäßig einmal ganz herum und ende wieder vorne. Etwa 20 bis 30
+          Tipp: Starte vorne, geh langsam und gleichmäßig einmal ganz herum und ende wieder vorne. Etwa 20 bis 30
           Sekunden reichen.
         </p>
         <button className="btn ghost" onClick={onCancel}>
@@ -341,6 +363,19 @@ export function ItemEditor({ initial, onSave, onCancel }: Props) {
         <p>{workMsg}</p>
         <p className="quiet">Beim ersten Mal dauert es etwas länger, weil die App das Freistell-Modell lädt.</p>
       </section>
+    )
+  }
+
+  if (phase === 'scan') {
+    return (
+      <ScanMode
+        already={FACE_KEYS.filter((k) => faces[k])}
+        onDone={handleScanned}
+        onCancel={(reason) => {
+          if (reason) setNotice(reason)
+          setPhase(faces.front || initial ? 'form' : 'pick')
+        }}
+      />
     )
   }
 
@@ -398,6 +433,9 @@ export function ItemEditor({ initial, onSave, onCancel }: Props) {
           Seite sie gepinnt wird. Die App entzerrt das Foto dann und setzt die Seiten zum Körper zusammen.
         </p>
         <div className="row">
+          <button type="button" className="btn small" onClick={startScan}>
+            Seiten scannen
+          </button>
           <button type="button" className="btn small" onClick={() => videoCamera.current?.click()}>
             Rundherum filmen
           </button>

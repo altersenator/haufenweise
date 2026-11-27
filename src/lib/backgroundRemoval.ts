@@ -62,16 +62,22 @@ export async function loadPhoto(file: Blob): Promise<HTMLCanvasElement> {
   return canvas
 }
 
-/** Erstellt aus dem Foto ein Bild mit durchsichtigem Hintergrund, eng zugeschnitten. */
-export async function removeBackground(photo: HTMLCanvasElement): Promise<HTMLCanvasElement> {
+export const MASK_SIZE = MODEL_SIZE
+
+/**
+ * Lässt das Modell eine Maske berechnen (MASK_SIZE × MASK_SIZE Werte).
+ * Werte nahe 1 = Gegenstand, nahe 0 = Hintergrund. Das Bild wird dafür
+ * auf ein Quadrat gestaucht, die Maske gilt also relativ zur Bildgröße.
+ */
+export async function predictMask(source: CanvasImageSource): Promise<Float32Array> {
   const session = await preloadModel()
 
-  // 1. Foto auf 320 × 320 bringen und in Zahlen umwandeln, so wie das Modell sie erwartet.
+  // Bild auf 320 × 320 bringen und in Zahlen umwandeln, so wie das Modell sie erwartet.
   const small = document.createElement('canvas')
   small.width = MODEL_SIZE
   small.height = MODEL_SIZE
   const sctx = small.getContext('2d', { willReadFrequently: true })!
-  sctx.drawImage(photo, 0, 0, MODEL_SIZE, MODEL_SIZE)
+  sctx.drawImage(source, 0, 0, MODEL_SIZE, MODEL_SIZE)
   const { data } = sctx.getImageData(0, 0, MODEL_SIZE, MODEL_SIZE)
 
   let max = 1
@@ -87,10 +93,19 @@ export async function removeBackground(photo: HTMLCanvasElement): Promise<HTMLCa
     }
   }
 
-  // 2. Modell ausführen. Ergebnis ist eine Maske: 1 = Gegenstand, 0 = Hintergrund.
   const tensor = new ort.Tensor('float32', input, [1, 3, MODEL_SIZE, MODEL_SIZE])
   const results = await session.run({ [session.inputNames[0]]: tensor })
-  const mask = results[session.outputNames[0]].data as Float32Array
+  return results[session.outputNames[0]].data as Float32Array
+}
+
+/**
+ * Erstellt aus dem Foto ein Bild mit durchsichtigem Hintergrund.
+ * Mit crop = true wird es eng auf den Gegenstand zugeschnitten,
+ * mit crop = false bleibt es genauso groß wie das Foto.
+ */
+export async function removeBackground(photo: HTMLCanvasElement, crop = true): Promise<HTMLCanvasElement> {
+  const mask = await predictMask(photo)
+  const plane = MODEL_SIZE * MODEL_SIZE
 
   let lo = Infinity
   let hi = -Infinity
@@ -125,7 +140,7 @@ export async function removeBackground(photo: HTMLCanvasElement): Promise<HTMLCa
   octx.drawImage(maskCanvas, 0, 0, out.width, out.height)
   octx.globalCompositeOperation = 'source-over'
 
-  return cropToContent(out)
+  return crop ? cropToContent(out) : out
 }
 
 /** Schneidet durchsichtige Ränder ab, damit das Bild genau den Gegenstand zeigt. */
