@@ -4,57 +4,101 @@ import { Grid } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { CuboidCollider, CylinderCollider, RigidBody, type RapierRigidBody } from '@react-three/rapier'
 import { useEffect, useMemo, useRef } from 'react'
-import { CanvasTexture, RepeatWrapping, SRGBColorSpace, type Mesh, type MeshStandardMaterial, type PointLight } from 'three'
+import { CanvasTexture, RepeatWrapping, SRGBColorSpace, type Mesh, type MeshStandardMaterial, type PointLight, type Texture } from 'three'
 import type { SceneKind, SceneOptions } from '../types'
-import { GROUND_HALF, type Vec3 } from './geometry'
+import type { Vec3 } from './geometry'
 
 export const SCENES: { kind: SceneKind; label: string }[] = [
-  { kind: 'plain', label: 'Freie Fläche' },
+  { kind: 'plain', label: 'Wand' },
   { kind: 'mugshot', label: 'Polizeifoto' },
   { kind: 'turntable', label: 'Drehteller' },
 ]
 
-/** Kameraposition und Blickpunkt, mit denen jeder Hintergrund startet */
+/**
+ * Die Bühne: hinten eine Wand, davor eine begrenzte Fläche zum Arrangieren.
+ * Alle Maße in Metern, die Wand steht bei z = back.
+ */
+export const STAGE = { halfW: 2.5, back: -1.5, front: 2.0, wallH: 2.8 }
+export const STAGE_CENTER_Z = (STAGE.back + STAGE.front) / 2
+
+/** Kameraposition und Blickpunkt, mit denen jeder Hintergrund startet. Die Kamera schaut immer auf die Wand. */
 export const CAMERA_PRESETS: Record<SceneKind, { position: Vec3; target: Vec3 }> = {
-  plain: { position: [3.4, 3.4, 4.4], target: [0, 0.4, 0] },
-  mugshot: { position: [0, 1.3, 4.6], target: [0, 0.9, -0.6] },
-  turntable: { position: [0, 2.6, 4.6], target: [0, 0.4, 0] },
+  plain: { position: [0, 1.55, 5.4], target: [0, 0.8, -0.3] },
+  mugshot: { position: [0, 1.4, 5.2], target: [0, 0.9, -0.5] },
+  turntable: { position: [0, 2.3, 5.4], target: [0, 0.45, 0.1] },
 }
 
-export const MUGSHOT_WALL_Z = -1.6
-export const TURNTABLE_RADIUS = 1.6
+/** Grenzen für den Blickpunkt der Kamera, damit man nie hinter die Wand oder ins Leere schaut */
+export const CAMERA_TARGET_BOUNDS = { min: [-1.8, 0.2, STAGE.back + 0.4] as Vec3, max: [1.8, 1.9, 1.4] as Vec3 }
+
+export const TURNTABLE_RADIUS = 1.4
 const TURNTABLE_TOP = 0.1
 
-/** Boden und unsichtbare Ränder, gemeinsam für alle Hintergründe */
-export function Ground({ color = '#d8d3c9', grid = true }: { color?: string; grid?: boolean }) {
+interface StageProps {
+  floor?: string
+  wall?: string
+  wallMap?: Texture
+  grid?: boolean
+}
+
+/** Boden, Wand und unsichtbare Ränder, gemeinsam für alle Hintergründe */
+export function Stage({ floor = '#dcd4c6', wall = '#ece7dd', wallMap, grid = true }: StageProps) {
+  const w = STAGE.halfW * 2
+  const depth = STAGE.front - STAGE.back
   return (
     <>
       <RigidBody type="fixed" colliders={false}>
-        <CuboidCollider args={[GROUND_HALF, 0.05, GROUND_HALF]} position={[0, -0.05, 0]} friction={1} />
-        <CuboidCollider args={[0.05, 2, GROUND_HALF]} position={[GROUND_HALF, 2, 0]} />
-        <CuboidCollider args={[0.05, 2, GROUND_HALF]} position={[-GROUND_HALF, 2, 0]} />
-        <CuboidCollider args={[GROUND_HALF, 2, 0.05]} position={[0, 2, GROUND_HALF]} />
-        <CuboidCollider args={[GROUND_HALF, 2, 0.05]} position={[0, 2, -GROUND_HALF]} />
+        <CuboidCollider args={[STAGE.halfW + 0.5, 0.05, depth / 2 + 0.5]} position={[0, -0.05, STAGE_CENTER_Z]} friction={1} />
+        <CuboidCollider args={[STAGE.halfW, STAGE.wallH / 2, 0.05]} position={[0, STAGE.wallH / 2, STAGE.back - 0.05]} friction={0.6} />
       </RigidBody>
-      <mesh rotation-x={-Math.PI / 2} position={[0, -0.001, 0]} receiveShadow>
-        <planeGeometry args={[80, 80]} />
+      {/* Unsichtbare Ränder links, rechts und vorne. Zielstrahlen beim Ziehen gehen durch sie hindurch. */}
+      <RigidBody type="fixed" colliders={false} userData={{ boundary: true }}>
+        <CuboidCollider args={[0.05, 1.5, depth / 2]} position={[STAGE.halfW + 0.05, 1.5, STAGE_CENTER_Z]} />
+        <CuboidCollider args={[0.05, 1.5, depth / 2]} position={[-STAGE.halfW - 0.05, 1.5, STAGE_CENTER_Z]} />
+        <CuboidCollider args={[STAGE.halfW, 1.5, 0.05]} position={[0, 1.5, STAGE.front + 0.05]} />
+      </RigidBody>
+
+      {/* Umgebung, verschwimmt im Hintergrund */}
+      <mesh rotation-x={-Math.PI / 2} position={[0, -0.004, 0]} receiveShadow>
+        <planeGeometry args={[60, 60]} />
         <meshStandardMaterial color="#cbc5ba" roughness={1} />
       </mesh>
-      <mesh rotation-x={-Math.PI / 2} receiveShadow>
-        <planeGeometry args={[GROUND_HALF * 2, GROUND_HALF * 2]} />
-        <meshStandardMaterial color={color} roughness={1} />
+      {/* Fläche zum Arrangieren */}
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0, STAGE_CENTER_Z]} receiveShadow>
+        <planeGeometry args={[w, depth]} />
+        <meshStandardMaterial color={floor} roughness={1} />
+      </mesh>
+      {/* Vorderkante der Fläche */}
+      <mesh position={[0, 0.006, STAGE.front - 0.015]} receiveShadow>
+        <boxGeometry args={[w, 0.012, 0.03]} />
+        <meshStandardMaterial color="#12343b" roughness={0.8} />
       </mesh>
       {grid && (
         <Grid
-          position={[0, 0.002, 0]}
-          args={[GROUND_HALF * 2, GROUND_HALF * 2]}
+          position={[0, 0.003, STAGE_CENTER_Z]}
+          args={[w, depth]}
           cellSize={0.5}
           sectionSize={1}
-          cellColor="#b9b2a6"
-          sectionColor="#9d958a"
-          fadeDistance={16}
+          cellColor="#c4bcae"
+          sectionColor="#aaa194"
+          fadeDistance={20}
           infiniteGrid={false}
         />
+      )}
+      {/* Wand */}
+      <mesh position={[0, STAGE.wallH / 2, STAGE.back]} receiveShadow>
+        <planeGeometry args={[w, STAGE.wallH]} />
+        <meshStandardMaterial color={wallMap ? '#ffffff' : wall} map={wallMap ?? null} roughness={0.95} />
+      </mesh>
+      <mesh position={[0, STAGE.wallH / 2, STAGE.back - 0.06]} castShadow>
+        <boxGeometry args={[w + 0.08, STAGE.wallH + 0.04, 0.1]} />
+        <meshStandardMaterial color="#b9b2a6" roughness={1} />
+      </mesh>
+      {!wallMap && (
+        <mesh position={[0, 0.04, STAGE.back + 0.01]} receiveShadow>
+          <boxGeometry args={[w, 0.08, 0.02]} />
+          <meshStandardMaterial color="#f7f4ee" roughness={0.8} />
+        </mesh>
       )}
     </>
   )
@@ -62,8 +106,8 @@ export function Ground({ color = '#d8d3c9', grid = true }: { color?: string; gri
 
 // ---- Polizeifoto ---------------------------------------------------------------
 
-const WALL_W = GROUND_HALF * 2
-const WALL_H = 3
+const WALL_W = STAGE.halfW * 2
+const WALL_H = STAGE.wallH
 
 /** Wand mit Messlatte in echten Zentimetern, wie bei einem Polizeifoto */
 function mugshotTexture() {
@@ -79,18 +123,18 @@ function mugshotTexture() {
     const major = cm % 50 === 0
     g.fillStyle = major ? '#1f2d33' : '#5d6c71'
     g.fillRect(0, yOf(cm) - (major ? 2.5 : 1), c.width, major ? 5 : 2)
-    if (major) {
+    if (major && cm <= 200) {
       g.font = 'bold 34px Barlow, Arial, sans-serif'
       g.textBaseline = 'bottom'
       const label = `${cm} cm`
-      for (const x of [0.35, 2.6, 4.5, 6.4, 8.65]) {
+      for (const x of [0.3, 1.45, 2.5, 3.55, 4.7]) {
         g.textAlign = 'center'
         g.fillText(label, x * pxPerM, yOf(cm) - 6)
       }
     }
   }
   g.fillStyle = '#1f2d33'
-  g.font = 'bold 54px Barlow, Arial, sans-serif'
+  g.font = 'bold 40px Barlow, Arial, sans-serif'
   g.textAlign = 'center'
   g.textBaseline = 'top'
   g.fillText('HAUFENWEISE · SPERRMÜLL-ERKENNUNGSDIENST', c.width / 2, 24)
@@ -115,7 +159,7 @@ function Flash() {
   return (
     <>
       <pointLight ref={light} position={[0, 1.8, 3]} intensity={0} distance={14} decay={1.2} color="#ffffff" />
-      <mesh position={[GROUND_HALF - 0.4, WALL_H - 0.3, MUGSHOT_WALL_Z + 0.03]}>
+      <mesh position={[STAGE.halfW - 0.3, WALL_H - 0.3, STAGE.back + 0.03]}>
         <sphereGeometry args={[0.05, 16, 16]} />
         <meshStandardMaterial ref={dot} color="#c92a2a" emissive="#ff2a2a" emissiveIntensity={2} />
       </mesh>
@@ -128,14 +172,7 @@ export function MugshotScene() {
   useEffect(() => () => tex.dispose(), [tex])
   return (
     <>
-      <Ground color="#9b9a95" grid={false} />
-      <RigidBody type="fixed" colliders={false}>
-        <CuboidCollider args={[WALL_W / 2, WALL_H / 2, 0.05]} position={[0, WALL_H / 2, MUGSHOT_WALL_Z - 0.05]} friction={0.6} />
-      </RigidBody>
-      <mesh position={[0, WALL_H / 2, MUGSHOT_WALL_Z]} receiveShadow>
-        <planeGeometry args={[WALL_W, WALL_H]} />
-        <meshStandardMaterial map={tex} roughness={0.95} />
-      </mesh>
+      <Stage floor="#a3a29d" wallMap={tex} grid={false} />
       <Flash />
     </>
   )
@@ -187,12 +224,12 @@ export function TurntableScene({ options }: { options: SceneOptions }) {
 
   return (
     <>
-      <Ground />
+      <Stage />
       <RigidBody
         ref={body}
         type="kinematicVelocity"
         colliders={false}
-        position={[0, TURNTABLE_TOP / 2, 0]}
+        position={[0, TURNTABLE_TOP / 2, STAGE_CENTER_Z]}
         onWake={() => body.current?.setAngvel({ x: 0, y: options.running ? options.speed : 0, z: 0 }, true)}
       >
         <CylinderCollider args={[TURNTABLE_TOP / 2, TURNTABLE_RADIUS]} friction={1.4} />

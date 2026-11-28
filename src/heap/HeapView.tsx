@@ -14,13 +14,14 @@ import { useObjectUrl } from '../lib/useObjectUrl'
 import type { DecoKind, DecoPlacement, Hang, Heap, Item, Placement, SceneKind, SceneOptions } from '../types'
 import { DecoBody } from './DecoBody'
 import { DECO_KINDS, DECOS, decoMeters } from './decos'
-import { GROUND_HALF, halfExtents, rotate90, snapQuaternion, worldHalf, type BodyBox, type Vec3 } from './geometry'
+import { halfExtents, rotate90, snapQuaternion, worldHalf, type BodyBox, type Vec3 } from './geometry'
 import { HeapBody, type BodyEntry } from './HeapBody'
 import { Rope } from './Rope'
-import { CAMERA_PRESETS, Ground, MUGSHOT_WALL_Z, MugshotScene, SCENES, TurntableScene } from './scenes'
+import { CAMERA_PRESETS, CAMERA_TARGET_BOUNDS, MugshotScene, SCENES, Stage, STAGE, STAGE_CENTER_Z, TurntableScene } from './scenes'
 
 const HEAP_ID = 'private'
-const LIMIT = GROUND_HALF - 0.2
+// Bereich, in dem Körper liegen dürfen (etwas Abstand zu Wand und Rändern)
+const BOUNDS = { x: STAGE.halfW - 0.03, zMin: STAGE.back + 0.02, zMax: STAGE.front - 0.04 }
 const DEFAULT_OPTIONS: SceneOptions = { speed: 0.4, running: true }
 const DECO_PREFIX = 'deco:'
 const isDeco = (id: string) => id.startsWith(DECO_PREFIX)
@@ -34,22 +35,35 @@ interface DragState {
   started: boolean
 }
 
-/** Sucht in Ringen um die Mitte einen Platz, an dem der neue Körper niemanden berührt. */
-function freeSpot(half: Vec3, others: BodyBox[], minZ: number): [number, number] {
-  for (let r = 0; r <= 3.6; r += 0.3) {
+/** Sucht in Ringen um die Mitte der Bühne einen Platz, an dem der neue Körper niemanden berührt. */
+function freeSpot(half: Vec3, others: BodyBox[]): [number, number] {
+  for (let r = 0; r <= 3; r += 0.25) {
     const steps = r === 0 ? 1 : Math.max(8, Math.round(r * 12))
     for (let i = 0; i < steps; i++) {
       const a = (i / steps) * Math.PI * 2 + 0.4
       const x = Math.cos(a) * r
-      const z = Math.sin(a) * r
-      if (Math.abs(x) + half[0] > LIMIT || Math.abs(z) + half[2] > LIMIT || z - half[2] < minZ) continue
+      const z = STAGE_CENTER_Z + Math.sin(a) * r
+      if (Math.abs(x) + half[0] > BOUNDS.x || z - half[2] < BOUNDS.zMin || z + half[2] > BOUNDS.zMax) continue
       const clear = others.every(
         (o) => Math.abs(x - o.center[0]) >= half[0] + o.half[0] + 0.05 || Math.abs(z - o.center[2]) >= half[2] + o.half[2] + 0.05,
       )
       if (clear) return [x, z]
     }
   }
-  return [0, Math.max(0, minZ + half[2] + 0.1)] // alles voll: dann oben drauf
+  return [0, STAGE_CENTER_Z] // alles voll: dann oben drauf
+}
+
+/** Bringt Körper aus älteren, größeren Haufen auf die Bühne */
+function onStage<T extends { pos: Vec3 }>(p: T): T {
+  const [x, y, z] = p.pos
+  const nx = Math.max(-BOUNDS.x + 0.3, Math.min(BOUNDS.x - 0.3, x))
+  const nz = Math.max(BOUNDS.zMin + 0.3, Math.min(BOUNDS.zMax - 0.3, z))
+  return nx === x && nz === z ? p : { ...p, pos: [nx, y + 0.3, nz] }
+}
+
+/** Gehört ein Collider zu den unsichtbaren Rändern? Dann ignorieren ihn die Zielstrahlen. */
+function isBoundary(c: { parent(): { userData?: unknown } | null }) {
+  return !!(c.parent()?.userData as { boundary?: boolean } | undefined)?.boundary
 }
 
 function CameraGrab({ target }: { target: React.RefObject<Camera | null> }) {
@@ -84,6 +98,9 @@ function CameraRig({ scene, controls }: { scene: SceneKind; controls: React.RefO
   }, [scene, camera, controls])
   return null
 }
+
+const targetMin = new Vector3(...CAMERA_TARGET_BOUNDS.min)
+const targetMax = new Vector3(...CAMERA_TARGET_BOUNDS.max)
 
 function TrayItem({ item, onAdd }: { item: Item; onAdd: () => void }) {
   const url = useObjectUrl(item.image)
@@ -150,7 +167,6 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
   const [notice, setNotice] = useState('')
   const [, setRegVersion] = useState(0)
   const [pendingDims, setPendingDims] = useState<[number, number, number] | null>(null)
-  const [rebuild, setRebuild] = useState(0)
 
   const bodies = useRef(new Map<string, BodyEntry>())
   const seats = useRef(new Map<string, RapierRigidBody>())
@@ -165,7 +181,6 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
 
   const scene: SceneKind = heap?.scene ?? 'plain'
   const options = heap?.sceneOptions ?? DEFAULT_OPTIONS
-  const minZ = scene === 'mugshot' ? MUGSHOT_WALL_Z + 0.03 : -LIMIT
 
   // Gespeicherten Haufen laden. Gelöschte Gegenstände fallen heraus.
   useEffect(() => {
@@ -173,7 +188,8 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
       const ids = new Set(items.map((i) => i.id))
       setHeap({
         ...h,
-        placements: h.placements.filter((p) => ids.has(p.itemId)),
+        placements: h.placements.filter((p) => ids.has(p.itemId)).map(onStage),
+        decos: (h.decos ?? []).map(onStage),
         hangs: (h.hangs ?? []).filter((x) => ids.has(x.itemId)),
       })
     })
@@ -284,7 +300,7 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
       [-0.9, -0.9],
     ]) {
       const ray = new rapier.Ray({ x: x + dx * hx, y: fromY, z: z + dz * hz }, { x: 0, y: -1, z: 0 })
-      const hit = world.castRay(ray, fromY + 1, true, undefined, undefined, undefined, undefined, (c) => !skip.has(c.parent()?.handle ?? -1))
+      const hit = world.castRay(ray, fromY + 1, true, undefined, undefined, undefined, undefined, (c) => !skip.has(c.parent()?.handle ?? -1) && !isBoundary(c))
       if (hit) top = Math.max(top, fromY - hit.timeOfImpact)
     }
     return top
@@ -295,7 +311,7 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
   function addItem(item: Item) {
     if (!heap) return
     const half = halfExtents(item)
-    const [x, z] = freeSpot(half, others(), minZ)
+    const [x, z] = freeSpot(half, others())
     const y = surfaceBelow(x, z, half[0], half[2], 6, new Set()) + half[1] + 0.02
     setHeap({ ...snapshot(heap), placements: [...heap.placements, { itemId: item.id, pos: [x, y, z], rot: [0, 0, 0, 1], locked: false }] })
     setSelected(item.id)
@@ -307,7 +323,7 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
     const dimsCm = [...DECOS[kind].defaults] as [number, number, number]
     const m = decoMeters(kind, dimsCm)
     const half: Vec3 = [m[0] / 2, m[1] / 2, m[2] / 2]
-    const [x, z] = freeSpot(half, others(), minZ)
+    const [x, z] = freeSpot(half, others())
     const y = surfaceBelow(x, z, half[0], half[2], 6, new Set()) + half[1] + 0.02
     const deco: DecoPlacement = { id: DECO_PREFIX + newId(), kind, dims: dimsCm, pos: [x, y, z], rot: [0, 0, 0, 1], locked: false }
     setHeap({ ...snapshot(heap), decos: [...(heap.decos ?? []), deco] })
@@ -460,16 +476,11 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
 
   function setScene(kind: SceneKind) {
     if (!heap || kind === scene) return
-    const h = snapshot(heap)
-    // Beim Polizeifoto steht die Wand hinten: Was dahinter liegt, kommt nach vorne
-    const fix = <T extends { pos: Vec3 }>(p: T): T =>
-      kind === 'mugshot' && p.pos[2] < MUGSHOT_WALL_Z + 0.4 ? { ...p, pos: [p.pos[0], p.pos[1] + 0.3, MUGSHOT_WALL_Z + 0.6] } : p
-    setHeap({ ...h, scene: kind, placements: h.placements.map(fix), decos: (h.decos ?? []).map(fix) })
-    // Körper neu aufbauen, damit sie die korrigierten Positionen übernehmen
-    setRebuild((n) => n + 1)
+    setHeap({ ...snapshot(heap), scene: kind })
     setSelected(null)
     scheduleSave()
   }
+
   function setOptions(next: Partial<SceneOptions>) {
     if (!heap) return
     setHeap({ ...heap, sceneOptions: { ...options, ...next } })
@@ -513,7 +524,7 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
     const dir = e.ray.direction
     const ray = new rapier.Ray({ x: o.x, y: o.y, z: o.z }, { x: dir.x, y: dir.y, z: dir.z })
     const skip = excludedHandles(id)
-    const hit = world.castRayAndGetNormal(ray, 60, true, undefined, undefined, undefined, undefined, (c) => !skip.has(c.parent()?.handle ?? -1))
+    const hit = world.castRayAndGetNormal(ray, 60, true, undefined, undefined, undefined, undefined, (c) => !skip.has(c.parent()?.handle ?? -1) && !isBoundary(c))
     if (!hit) return
     const p = ray.pointAt(hit.timeOfImpact)
     const n = hit.normal
@@ -533,13 +544,11 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
       z = p.z + n.z * push
       y = Math.max(p.y, wh[1] + 0.01)
     }
-    x = Math.max(-LIMIT + wh[0], Math.min(LIMIT - wh[0], x))
-    z = Math.max(minZRef.current + wh[2], Math.min(LIMIT - wh[2], z))
+    x = Math.max(-BOUNDS.x + wh[0], Math.min(BOUNDS.x - wh[0], x))
+    z = Math.max(BOUNDS.zMin + wh[2], Math.min(BOUNDS.zMax - wh[2], z))
     entry.body.setNextKinematicTranslation({ x, y, z })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const minZRef = useRef(minZ)
-  minZRef.current = minZ
 
   const endDrag = useCallback(() => {
     const d = drag.current
@@ -625,11 +634,11 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
             shadows
             dpr={[1, 2]}
             resize={{ scroll: false, debounce: { scroll: 0, resize: 50 } }}
-            camera={{ position: CAMERA_PRESETS.plain.position, fov: 42, near: 0.05, far: 80 }}
+            camera={{ position: CAMERA_PRESETS.plain.position, fov: 40, near: 0.05, far: 60 }}
             onPointerMissed={() => setSelected(null)}
           >
             <color attach="background" args={[scene === 'mugshot' ? '#d7dcdc' : '#e9eeed']} />
-            <fog attach="fog" args={[scene === 'mugshot' ? '#d7dcdc' : '#e9eeed', 9, 26]} />
+            <fog attach="fog" args={[scene === 'mugshot' ? '#d7dcdc' : '#e9eeed', 8, 22]} />
             <hemisphereLight intensity={0.9} groundColor="#b8b0a2" />
             <directionalLight
               castShadow
@@ -644,9 +653,9 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
             <CameraGrab target={camera} />
             <CameraRig scene={scene} controls={controls} />
             <Suspense fallback={null}>
-              <Physics gravity={[0, -9.81, 0]} key={rebuild}>
+              <Physics gravity={[0, -9.81, 0]}>
                 <PhysicsGrab target={physics} />
-                {scene === 'plain' && <Ground />}
+                {scene === 'plain' && <Stage />}
                 {scene === 'mugshot' && <MugshotScene />}
                 {scene === 'turntable' && <TurntableScene options={options} />}
 
@@ -704,14 +713,19 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
                 })}
               </Physics>
             </Suspense>
+            {/* Die Kamera bleibt vor der Wand: seitlich nur begrenzt drehbar, nicht unter den Boden */}
             <OrbitControls
               ref={controls}
               makeDefault
               enabled={!pressing}
               target={CAMERA_PRESETS.plain.target}
-              minDistance={0.8}
-              maxDistance={12}
-              maxPolarAngle={Math.PI / 2.05}
+              minDistance={1.2}
+              maxDistance={7.5}
+              minAzimuthAngle={-0.65}
+              maxAzimuthAngle={0.65}
+              minPolarAngle={0.95}
+              maxPolarAngle={1.52}
+              onChange={() => controls.current?.target.clamp(targetMin, targetMax)}
             />
           </Canvas>
         )}
@@ -820,7 +834,8 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
         {!selItem && !selDeco && !notice && (
           <p className="quiet small">
             Tippe etwas an, um es zu bearbeiten. Halt es mit dem Finger fest und zeig dorthin, wo es hin soll, zum Beispiel in
-            ein Regalfach oder auf eine Etage. Wischen auf der freien Fläche dreht die Ansicht, zwei Finger zoomen.
+            ein Regalfach oder auf eine Etage. Wischen auf einer freien Stelle schwenkt die Ansicht nach links und rechts, zwei
+            Finger zoomen und verschieben.
           </p>
         )}
       </div>
