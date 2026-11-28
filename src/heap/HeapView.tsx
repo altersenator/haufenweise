@@ -3,7 +3,7 @@
 // in Regalfächer stellen oder aufhängen. Dazu verschiedene Hintergründe, teils in Bewegung.
 // Die Physik sorgt dafür, dass alles realistisch aufeinander liegt.
 import { OrbitControls } from '@react-three/drei'
-import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber'
+import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Physics, useRapier, type RapierRigidBody } from '@react-three/rapier'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Quaternion, Vector3, type Camera } from 'three'
@@ -21,7 +21,7 @@ import { CAMERA_PRESETS, CAMERA_TARGET_BOUNDS, MugshotScene, SCENES, Stage, STAG
 
 const HEAP_ID = 'private'
 // Bereich, in dem Körper liegen dürfen (etwas Abstand zu Wand und Rändern)
-const BOUNDS = { x: STAGE.halfW - 0.03, zMin: STAGE.back + 0.02, zMax: STAGE.front - 0.04 }
+const BOUNDS = { x: STAGE.halfW, zMin: STAGE.back + 0.02, zMax: STAGE.front }
 const DEFAULT_OPTIONS: SceneOptions = { speed: 0.4, running: true }
 const DECO_PREFIX = 'deco:'
 const isDeco = (id: string) => id.startsWith(DECO_PREFIX)
@@ -61,6 +61,11 @@ function onStage<T extends { pos: Vec3 }>(p: T): T {
   return nx === x && nz === z ? p : { ...p, pos: [nx, y + 0.3, nz] }
 }
 
+/** Alle Collider eines Körpers durchlässig machen (beim Ziehen) oder wieder fest */
+function setSensor(body: RapierRigidBody, sensor: boolean) {
+  for (let i = 0; i < body.numColliders(); i++) body.collider(i).setSensor(sensor)
+}
+
 /** Gehört ein Collider zu den unsichtbaren Rändern? Dann ignorieren ihn die Zielstrahlen. */
 function isBoundary(c: { parent(): { userData?: unknown } | null }) {
   return !!(c.parent()?.userData as { boundary?: boolean } | undefined)?.boundary
@@ -96,6 +101,32 @@ function CameraRig({ scene, controls }: { scene: SceneKind; controls: React.RefO
       c.saveState()
     }
   }, [scene, camera, controls])
+  return null
+}
+
+/**
+ * Sicherheitsnetz: Rutscht doch einmal etwas unter den Boden, wird es sofort wieder daraufgestellt.
+ */
+function Rescue({ bodies }: { bodies: React.RefObject<Map<string, BodyEntry>> }) {
+  const acc = useRef(0)
+  useFrame((_, delta) => {
+    acc.current += delta
+    if (acc.current < 0.25) return
+    acc.current = 0
+    for (const e of bodies.current.values()) {
+      try {
+        const t = e.body.translation()
+        if (t.y > -0.3 && Number.isFinite(t.y)) continue
+        const x = Number.isFinite(t.x) ? Math.max(-BOUNDS.x, Math.min(BOUNDS.x, t.x)) : 0
+        const z = Number.isFinite(t.z) ? Math.max(BOUNDS.zMin + 0.5, Math.min(BOUNDS.zMax, t.z)) : 0.5
+        e.body.setTranslation({ x, y: Math.max(...e.half) + 0.1, z }, true)
+        e.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+        e.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+      } catch {
+        /* Körper wird gerade entfernt */
+      }
+    }
+  })
   return null
 }
 
@@ -510,15 +541,19 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
     const d = drag.current
     if (!d || d.id !== id) return
     e.stopPropagation()
-    if (!d.started) {
-      if (Math.hypot(e.nativeEvent.clientX - d.sx, e.nativeEvent.clientY - d.sy) < 6) return
-      d.started = true
-      setDragging(id)
-    }
     const entry = bodies.current.get(id)
     const api = physics.current
     if (!entry || !api) return
     const { world, rapier } = api
+    if (!d.started) {
+      if (Math.hypot(e.nativeEvent.clientX - d.sx, e.nativeEvent.clientY - d.sy) < 6) return
+      d.started = true
+      // Sofort umschalten (nicht erst beim nächsten Neuzeichnen): sonst fällt der durchlässige
+      // Körper für einen Moment der Schwerkraft zum Opfer und rutscht durch den Boden.
+      entry.body.setBodyType(rapier.RigidBodyType.KinematicPositionBased, true)
+      setSensor(entry.body, true)
+      setDragging(id)
+    }
     // Dorthin, wo der Finger zeigt: Zielstrahl von der Kamera durch den Finger
     const o = e.ray.origin
     const dir = e.ray.direction
@@ -536,7 +571,7 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
       // Auf eine Oberfläche stellen (Boden, Regalbrett, Etagere, anderer Gegenstand …)
       x = p.x
       z = p.z
-      y = p.y + wh[1] + 0.01
+      y = Math.max(p.y, 0) + wh[1] + 0.01
     } else {
       // An eine Wand oder Seite heranschieben; beim Loslassen fällt er herunter
       const push = Math.abs(n.x) * wh[0] + Math.abs(n.z) * wh[2] + 0.01
@@ -555,10 +590,21 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
     drag.current = null
     setPressing(false)
     if (d?.started) {
+      const entry = bodies.current.get(d.id)
+      const api = physics.current
+      if (entry && api) {
+        // Wieder fest und ohne Schwung loslassen, damit nichts weggeschleudert wird oder durchrutscht
+        const locked = isLocked(d.id)
+        entry.body.setBodyType(locked ? api.rapier.RigidBodyType.Fixed : api.rapier.RigidBodyType.Dynamic, true)
+        setSensor(entry.body, false)
+        entry.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+        entry.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+        entry.body.wakeUp()
+      }
       setDragging(null)
-      requestAnimationFrame(() => bodies.current.get(d.id)?.body.wakeUp())
       scheduleSave()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scheduleSave])
 
   const onUp = useCallback(
@@ -634,27 +680,29 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
             shadows
             dpr={[1, 2]}
             resize={{ scroll: false, debounce: { scroll: 0, resize: 50 } }}
-            camera={{ position: CAMERA_PRESETS.plain.position, fov: 40, near: 0.05, far: 60 }}
+            camera={{ position: CAMERA_PRESETS.plain.position, fov: 40, near: 0.05, far: 300 }}
             onPointerMissed={() => setSelected(null)}
           >
             <color attach="background" args={[scene === 'mugshot' ? '#d7dcdc' : '#e9eeed']} />
-            <fog attach="fog" args={[scene === 'mugshot' ? '#d7dcdc' : '#e9eeed', 8, 22]} />
+            <fog attach="fog" args={[scene === 'mugshot' ? '#d7dcdc' : '#e9eeed', 16, 60]} />
             <hemisphereLight intensity={0.9} groundColor="#b8b0a2" />
             <directionalLight
               castShadow
               position={[4, 7, 3]}
               intensity={1.7}
-              shadow-mapSize={[1024, 1024]}
-              shadow-camera-left={-5}
-              shadow-camera-right={5}
-              shadow-camera-top={5}
-              shadow-camera-bottom={-5}
+              shadow-mapSize-width={2048}
+              shadow-mapSize-height={2048}
+              shadow-camera-left={-9}
+              shadow-camera-right={9}
+              shadow-camera-top={9}
+              shadow-camera-bottom={-9}
             />
             <CameraGrab target={camera} />
             <CameraRig scene={scene} controls={controls} />
             <Suspense fallback={null}>
               <Physics gravity={[0, -9.81, 0]}>
                 <PhysicsGrab target={physics} />
+                <Rescue bodies={bodies} />
                 {scene === 'plain' && <Stage />}
                 {scene === 'mugshot' && <MugshotScene />}
                 {scene === 'turntable' && <TurntableScene options={options} />}
@@ -720,7 +768,7 @@ export default function HeapView({ items, onBack, onOpen }: Props) {
               enabled={!pressing}
               target={CAMERA_PRESETS.plain.target}
               minDistance={1.2}
-              maxDistance={7.5}
+              maxDistance={14}
               minAzimuthAngle={-0.65}
               maxAzimuthAngle={0.65}
               minPolarAngle={0.95}

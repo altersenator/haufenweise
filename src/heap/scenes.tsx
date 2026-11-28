@@ -15,88 +15,80 @@ export const SCENES: { kind: SceneKind; label: string }[] = [
 ]
 
 /**
- * Die Bühne: hinten eine Wand, davor eine begrenzte Fläche zum Arrangieren.
- * Alle Maße in Metern, die Wand steht bei z = back.
+ * Die Bühne: hinten eine Wand, davor der Boden. Beide reichen optisch bis zum Horizont.
+ * Gegenstände dürfen in einem großzügigen Bereich vor der Wand liegen. Maße in Metern.
  */
-export const STAGE = { halfW: 2.5, back: -1.5, front: 2.0, wallH: 2.8 }
-export const STAGE_CENTER_Z = (STAGE.back + STAGE.front) / 2
+export const STAGE = {
+  back: -1.5, // hier steht die Wand
+  halfW: 9, // so weit nach links und rechts darf man Dinge stellen
+  front: 8, // so weit nach vorne
+  wallH: 2.8, // Höhe der Messlatte beim Polizeifoto
+}
+export const STAGE_CENTER_Z = 0.25 // Mitte der Startansicht
 
-/** Kameraposition und Blickpunkt, mit denen jeder Hintergrund startet. Die Kamera schaut immer auf die Wand. */
+/**
+ * Kameraposition und Blickpunkt, mit denen jeder Hintergrund startet. Die Kamera schaut immer auf die Wand.
+ * Abstand: das 1,5-Fache der ersten Fassung.
+ */
 export const CAMERA_PRESETS: Record<SceneKind, { position: Vec3; target: Vec3 }> = {
-  plain: { position: [0, 1.55, 5.4], target: [0, 0.8, -0.3] },
-  mugshot: { position: [0, 1.4, 5.2], target: [0, 0.9, -0.5] },
-  turntable: { position: [0, 2.3, 5.4], target: [0, 0.45, 0.1] },
+  plain: { position: [0, 1.93, 8.25], target: [0, 0.8, -0.3] },
+  mugshot: { position: [0, 1.65, 8.05], target: [0, 0.9, -0.5] },
+  turntable: { position: [0, 3.23, 8.05], target: [0, 0.45, 0.1] },
 }
 
 /** Grenzen für den Blickpunkt der Kamera, damit man nie hinter die Wand oder ins Leere schaut */
-export const CAMERA_TARGET_BOUNDS = { min: [-1.8, 0.2, STAGE.back + 0.4] as Vec3, max: [1.8, 1.9, 1.4] as Vec3 }
+export const CAMERA_TARGET_BOUNDS = { min: [-6, 0.2, STAGE.back + 0.4] as Vec3, max: [6, 2.5, 5] as Vec3 }
 
 export const TURNTABLE_RADIUS = 1.4
 const TURNTABLE_TOP = 0.1
+const FAR = 400 // „unendlich“: weiter, als man je sehen kann
 
 interface StageProps {
   floor?: string
   wall?: string
-  wallMap?: Texture
+  /** Band mit Bild auf der Wand (Polizeifoto), wiederholt sich nach links und rechts */
+  band?: Texture
   grid?: boolean
 }
 
-/** Boden, Wand und unsichtbare Ränder, gemeinsam für alle Hintergründe */
-export function Stage({ floor = '#dcd4c6', wall = '#ece7dd', wallMap, grid = true }: StageProps) {
-  const w = STAGE.halfW * 2
-  const depth = STAGE.front - STAGE.back
+/** Boden und Wand, gemeinsam für alle Hintergründe */
+export function Stage({ floor = '#dcd4c6', wall = '#ece7dd', band, grid = true }: StageProps) {
   return (
     <>
+      {/* Dicker Boden und dicke Wand, damit nichts hindurchrutschen kann */}
       <RigidBody type="fixed" colliders={false}>
-        <CuboidCollider args={[STAGE.halfW + 0.5, 0.05, depth / 2 + 0.5]} position={[0, -0.05, STAGE_CENTER_Z]} friction={1} />
-        <CuboidCollider args={[STAGE.halfW, STAGE.wallH / 2, 0.05]} position={[0, STAGE.wallH / 2, STAGE.back - 0.05]} friction={0.6} />
-      </RigidBody>
-      {/* Unsichtbare Ränder links, rechts und vorne. Zielstrahlen beim Ziehen gehen durch sie hindurch. */}
-      <RigidBody type="fixed" colliders={false} userData={{ boundary: true }}>
-        <CuboidCollider args={[0.05, 1.5, depth / 2]} position={[STAGE.halfW + 0.05, 1.5, STAGE_CENTER_Z]} />
-        <CuboidCollider args={[0.05, 1.5, depth / 2]} position={[-STAGE.halfW - 0.05, 1.5, STAGE_CENTER_Z]} />
-        <CuboidCollider args={[STAGE.halfW, 1.5, 0.05]} position={[0, 1.5, STAGE.front + 0.05]} />
+        <CuboidCollider args={[FAR / 2, 1, FAR / 2]} position={[0, -1, 0]} friction={1} />
+        <CuboidCollider args={[FAR / 2, FAR / 4, 1]} position={[0, FAR / 4, STAGE.back - 1]} friction={0.6} />
       </RigidBody>
 
-      {/* Umgebung, verschwimmt im Hintergrund */}
-      <mesh rotation-x={-Math.PI / 2} position={[0, -0.004, 0]} receiveShadow>
-        <planeGeometry args={[60, 60]} />
-        <meshStandardMaterial color="#cbc5ba" roughness={1} />
-      </mesh>
-      {/* Fläche zum Arrangieren */}
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0, STAGE_CENTER_Z]} receiveShadow>
-        <planeGeometry args={[w, depth]} />
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0, STAGE.back + FAR / 2]} receiveShadow>
+        <planeGeometry args={[FAR, FAR]} />
         <meshStandardMaterial color={floor} roughness={1} />
-      </mesh>
-      {/* Vorderkante der Fläche */}
-      <mesh position={[0, 0.006, STAGE.front - 0.015]} receiveShadow>
-        <boxGeometry args={[w, 0.012, 0.03]} />
-        <meshStandardMaterial color="#12343b" roughness={0.8} />
       </mesh>
       {grid && (
         <Grid
-          position={[0, 0.003, STAGE_CENTER_Z]}
-          args={[w, depth]}
+          position={[0, 0.003, 0]}
           cellSize={0.5}
           sectionSize={1}
           cellColor="#c4bcae"
           sectionColor="#aaa194"
-          fadeDistance={20}
-          infiniteGrid={false}
+          fadeDistance={28}
+          fadeStrength={1.2}
+          infiniteGrid
         />
       )}
-      {/* Wand */}
-      <mesh position={[0, STAGE.wallH / 2, STAGE.back]} receiveShadow>
-        <planeGeometry args={[w, STAGE.wallH]} />
-        <meshStandardMaterial color={wallMap ? '#ffffff' : wall} map={wallMap ?? null} roughness={0.95} />
+      <mesh position={[0, FAR / 4, STAGE.back]} receiveShadow>
+        <planeGeometry args={[FAR, FAR / 2]} />
+        <meshStandardMaterial color={wall} roughness={0.95} />
       </mesh>
-      <mesh position={[0, STAGE.wallH / 2, STAGE.back - 0.06]} castShadow>
-        <boxGeometry args={[w + 0.08, STAGE.wallH + 0.04, 0.1]} />
-        <meshStandardMaterial color="#b9b2a6" roughness={1} />
-      </mesh>
-      {!wallMap && (
+      {band ? (
+        <mesh position={[0, STAGE.wallH / 2, STAGE.back + 0.003]} receiveShadow>
+          <planeGeometry args={[FAR, STAGE.wallH]} />
+          <meshStandardMaterial map={band} roughness={0.95} />
+        </mesh>
+      ) : (
         <mesh position={[0, 0.04, STAGE.back + 0.01]} receiveShadow>
-          <boxGeometry args={[w, 0.08, 0.02]} />
+          <boxGeometry args={[FAR, 0.08, 0.02]} />
           <meshStandardMaterial color="#f7f4ee" roughness={0.8} />
         </mesh>
       )}
@@ -106,7 +98,7 @@ export function Stage({ floor = '#dcd4c6', wall = '#ece7dd', wallMap, grid = tru
 
 // ---- Polizeifoto ---------------------------------------------------------------
 
-const WALL_W = STAGE.halfW * 2
+const WALL_W = 5 // ein Abschnitt der Messlatte, wiederholt sich nach links und rechts
 const WALL_H = STAGE.wallH
 
 /** Wand mit Messlatte in echten Zentimetern, wie bei einem Polizeifoto */
@@ -141,6 +133,9 @@ function mugshotTexture() {
   const tex = new CanvasTexture(c)
   tex.colorSpace = SRGBColorSpace
   tex.anisotropy = 4
+  tex.wrapS = RepeatWrapping
+  tex.repeat.set(FAR / WALL_W, 1)
+  tex.offset.set(0.5, 0) // ein Abschnitt genau in der Mitte
   return tex
 }
 
@@ -159,7 +154,7 @@ function Flash() {
   return (
     <>
       <pointLight ref={light} position={[0, 1.8, 3]} intensity={0} distance={14} decay={1.2} color="#ffffff" />
-      <mesh position={[STAGE.halfW - 0.3, WALL_H - 0.3, STAGE.back + 0.03]}>
+      <mesh position={[2.2, WALL_H - 0.3, STAGE.back + 0.03]}>
         <sphereGeometry args={[0.05, 16, 16]} />
         <meshStandardMaterial ref={dot} color="#c92a2a" emissive="#ff2a2a" emissiveIntensity={2} />
       </mesh>
@@ -172,7 +167,7 @@ export function MugshotScene() {
   useEffect(() => () => tex.dispose(), [tex])
   return (
     <>
-      <Stage floor="#a3a29d" wallMap={tex} grid={false} />
+      <Stage floor="#a3a29d" wall="#c9d3d6" band={tex} grid={false} />
       <Flash />
     </>
   )

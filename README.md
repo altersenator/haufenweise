@@ -28,7 +28,8 @@ Die aktuelle Version läuft unter **https://altersenator.github.io/haufenweise/*
 - Ziehen per Zielstrahl (Rapier-Raycast): Der Gegenstand landet dort, wo der Finger hinzeigt, auch in Regalfächern; beim Ziehen ist er ein Sensor und schiebt nichts an
 - Deko-Bausteine (`src/heap/decos.ts`): Regal 4 × 4, Siegertreppchen, Schaukel mit Drehgelenk, Etagere; Größe per Regler, aus einfachen Teilen für Grafik und Physik zugleich
 - Aufhängen an Haken per Seilgelenk (`src/heap/Rope.tsx`)
-- Bühne mit Rückwand und begrenzter Fläche, Kamera schaut immer auf die Wand (begrenzte Dreh- und Neigungswinkel, Blickpunkt eingegrenzt)
+- Bühne mit endloser Rückwand und endlosem Boden, Kamera schaut immer auf die Wand (begrenzte Dreh- und Neigungswinkel, Blickpunkt eingegrenzt)
+- Beim Ziehen wird der Körpertyp sofort umgeschaltet und ohne Schwung losgelassen; dicke Boden- und Wand-Collider; Sicherheitsnetz holt durchgerutschte Körper zurück (`Rescue`)
 - Hintergründe (`src/heap/scenes.tsx`): schlichte Wand, Polizeifoto-Wand mit Messlatte in echten Zentimetern und Blitz, Drehteller (kinematischer Körper, Tempo einstellbar)
 - Die Aufstellung wird lokal gespeichert (IndexedDB, Store `heaps`)
 - Der 3D-Teil wird erst beim Öffnen geladen (eigener Chunk, etwa 1,1 MB komprimiert)
